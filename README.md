@@ -62,7 +62,8 @@ Androkiller/
 ## 📦 Download Pre-built APK
 
 You can download the ready-to-install Android APK directly from the **[GitHub Releases](https://github.com/kanXer/Androkiller/releases)** section:
-- **`AndroKiller-v1.0.0-debug.apk`** under Release Assets.
+- **`AndroKiller-v1.0.0-release.apk`** *(Recommended)*: Production build with **Debug Mode OFF**, optimized, aligned, and signed for direct installation on any Android device.
+- **`AndroKiller-v1.0.0-debug.apk`**: Development testing APK.
 
 ---
 

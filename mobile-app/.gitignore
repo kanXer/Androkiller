@@ -1,0 +1,25 @@
+# Android & Gradle
+*.iml
+.gradle
+/local.properties
+local.properties
+.DS_Store
+/build
+build/
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Android Studio / IDEA
+/.idea/
+.idea/
+
+# Firebase credentials - DO NOT COMMIT REAL CREDS
+google-services.json
+app/google-services.json
+!google-services.json.example
+!app/google-services.json.example

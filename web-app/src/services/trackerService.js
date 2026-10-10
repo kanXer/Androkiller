@@ -17,63 +17,102 @@ import { db, isFirebaseConfigured } from '../firebase/config';
 import { dataUriToBlob, triggerBrowserBlobDownload, downloadFileSafely, downloadFromRemoteUrl } from '../utils/fileDownloader';
 
 /**
- * Subscribe to all registered devices.
+ * Helper to determine if an Android device currently has an active connection.
+ * Android foreground service sends a heartbeat to Firestore every 15 seconds.
+ * 
+ * A device is considered CONNECTED if:
+ * 1. isOnline !== false
+ * 2. monitoringActive !== false
+ * 3. connectionStatus is not 'CLOSED' or 'DISCONNECTED'
+ * 4. lastSeen / lastUpdated timestamp was refreshed within maxHeartbeatAgeSeconds (default 35s).
  */
-export function subscribeToDevices(callback, onError) {
+export function isDeviceConnected(device, maxHeartbeatAgeSeconds = 35) {
+  if (!device) return false;
+
+  // Explicit offline flags
+  if (device.isOnline === false) return false;
+  if (device.monitoringActive === false) return false;
+  if (device.connectionStatus === 'CLOSED' || device.connectionStatus === 'DISCONNECTED') return false;
+
+  // Timestamp inspection
+  const rawTimestamp = device.lastSeen || device.lastUpdated;
+  if (!rawTimestamp) return false;
+
+  let timestampMs = null;
+  if (typeof rawTimestamp.toMillis === 'function') {
+    timestampMs = rawTimestamp.toMillis();
+  } else if (typeof rawTimestamp.toDate === 'function') {
+    timestampMs = rawTimestamp.toDate().getTime();
+  } else if (rawTimestamp instanceof Date) {
+    timestampMs = rawTimestamp.getTime();
+  } else if (typeof rawTimestamp === 'number') {
+    timestampMs = rawTimestamp;
+  } else if (rawTimestamp && typeof rawTimestamp === 'object' && 'seconds' in rawTimestamp) {
+    timestampMs = rawTimestamp.seconds * 1000 + (rawTimestamp.nanoseconds ? Math.round(rawTimestamp.nanoseconds / 1000000) : 0);
+  } else if (typeof rawTimestamp === 'string') {
+    const parsed = new Date(rawTimestamp).getTime();
+    if (!isNaN(parsed)) timestampMs = parsed;
+  }
+
+  if (!timestampMs || isNaN(timestampMs) || timestampMs <= 0) return false;
+
+  const now = Date.now();
+  const ageSeconds = (now - timestampMs) / 1000;
+
+  // Active if timestamp is within maxHeartbeatAgeSeconds (tolerant to -60s clock skew)
+  return ageSeconds >= -60 && ageSeconds <= maxHeartbeatAgeSeconds;
+}
+
+/**
+ * Subscribe to devices. By default, returns ONLY actively connected devices.
+ * As soon as an Android device connects, it appears in the list.
+ * As soon as the connection closes (or heartbeat stops), it disappears.
+ */
+export function subscribeToDevices(callback, onError, options = {}) {
+  const { onlyConnected = true, maxAgeSeconds = 35 } = options;
+
   if (!isFirebaseConfigured()) {
-    // Return sample device for offline/preview mode
-    callback([
-      {
-        id: 'dev_preview_nexus',
-        deviceId: 'dev_preview_nexus',
-        deviceName: 'Pixel 9 Pro (Demo)',
-        model: 'Pixel 9 Pro',
-        manufacturer: 'Google',
-        osVersion: 'Android 15',
-        batteryLevel: 88,
-        isCharging: true,
-        isOnline: true,
-        monitoringActive: true,
-        updateIntervalSeconds: 15,
-        lastSeen: new Date(),
-        storageInfo: {
-          totalStorageGB: 128.0,
-          usedStorageGB: 46.2,
-          freeStorageGB: 81.8,
-          storagePercentUsed: 36,
-          totalRamGB: 8.0,
-          freeRamGB: 3.4
-        },
-        guardianPhoneNumber: "+18005550199",
-        permissions: {
-          location_fine: true,
-          location_background: true,
-          audio_record: true,
-          camera: true,
-          notifications: true
-        }
-      }
-    ]);
+    callback([]);
     return () => {};
   }
 
   try {
     const devicesCol = collection(db, 'devices');
-    return onSnapshot(
+    let latestRawDevices = [];
+
+    const publishFilteredDevices = () => {
+      const activeDevices = onlyConnected
+        ? latestRawDevices.filter(d => isDeviceConnected(d, maxAgeSeconds))
+        : latestRawDevices;
+      callback(activeDevices);
+    };
+
+    const unsubscribe = onSnapshot(
       devicesCol,
       (snapshot) => {
-        const devices = snapshot.docs.map((d) => ({
+        latestRawDevices = snapshot.docs.map((d) => ({
           id: d.id,
           deviceId: d.id,
           ...d.data()
         }));
-        callback(devices);
+        publishFilteredDevices();
       },
       (err) => {
         console.warn('Firestore devices listener error:', err);
         if (onError) onError(err);
       }
     );
+
+    // Live heartbeat timer: checks every 2.5s so disconnected/killed devices
+    // disappear automatically even when no new Firestore write occurs.
+    const ticker = setInterval(() => {
+      publishFilteredDevices();
+    }, 2500);
+
+    return () => {
+      unsubscribe();
+      clearInterval(ticker);
+    };
   } catch (err) {
     console.error('Failed to setup devices listener:', err);
     if (onError) onError(err);
@@ -243,7 +282,12 @@ export async function sendCommand(deviceId, action, parameters = {}) {
 export async function updateDeviceMonitoring(deviceId, monitoringActive) {
   if (!isFirebaseConfigured()) return;
   const deviceDoc = doc(db, 'devices', deviceId);
-  await setDoc(deviceDoc, { monitoringActive, lastUpdated: serverTimestamp() }, { merge: true });
+  await setDoc(deviceDoc, {
+    monitoringActive,
+    isOnline: monitoringActive,
+    connectionStatus: monitoringActive ? 'ACTIVE' : 'CLOSED',
+    lastUpdated: serverTimestamp()
+  }, { merge: true });
 }
 
 /**

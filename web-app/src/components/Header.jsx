@@ -73,18 +73,20 @@ export default function Header({
         <div className="flex items-center space-x-2 sm:space-x-3 w-full sm:w-auto">
           {/* Device Selector */}
           <div className="flex-1 sm:flex-initial flex items-center space-x-2 bg-slate-800/90 border border-slate-700 rounded-xl px-3 py-2 sm:py-1.5 text-xs">
-            <Smartphone className="w-4 h-4 text-slate-400 shrink-0" />
+            <Smartphone className="w-4 h-4 text-cyan-400 shrink-0" />
             <select
               value={selectedDeviceId || ''}
               onChange={(e) => onSelectDevice(e.target.value)}
               className="bg-transparent text-slate-200 font-mono focus:outline-none cursor-pointer w-full text-xs"
             >
               {devices.length === 0 ? (
-                <option value="">No Devices Discovered</option>
+                <option value="" className="bg-slate-900 text-amber-300">
+                  Waiting for Connection (0 Devices)
+                </option>
               ) : (
                 devices.map((dev) => (
                   <option key={dev.deviceId || dev.id} value={dev.deviceId || dev.id} className="bg-slate-900 text-white">
-                    {dev.deviceName || dev.deviceId} ({dev.deviceId})
+                    {dev.deviceName || dev.deviceId} • Online 🟢
                   </option>
                 ))
               )}
@@ -105,15 +107,15 @@ export default function Header({
 
           {/* Connection Status Badge (hidden on mobile, visible on sm+) */}
           <div className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold bg-slate-800/60 border-slate-700 shrink-0">
-            {isConnectedToFirebase ? (
+            {devices.length > 0 ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span className="text-emerald-400">Firebase Live</span>
+                <span className="text-emerald-400 font-mono">{devices.length} Online</span>
               </>
             ) : (
               <>
-                <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                <span className="text-amber-300">Demo Mode</span>
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                <span className="text-amber-300 font-mono">Standby</span>
               </>
             )}
           </div>

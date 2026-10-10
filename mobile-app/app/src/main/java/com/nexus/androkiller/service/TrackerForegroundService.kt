@@ -697,7 +697,7 @@ class TrackerForegroundService : Service() {
         val deviceId = statusProvider.getDeviceId()
         serviceScope.launch {
             val status = statusProvider.getSystemStatus(monitoringActive = false, intervalSeconds = trackingIntervalSeconds)
-            repository.updateSystemStatus(status)
+            repository.updateSystemStatus(status.copy(isOnline = false, monitoringActive = false))
             repository.pushLog(
                 UsageLog(
                     deviceId = deviceId,

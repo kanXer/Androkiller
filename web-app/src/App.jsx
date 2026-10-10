@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Header from './components/Header';
 import DashboardView from './components/DashboardView';
+import WaitingForDevice from './components/WaitingForDevice';
 import FirebaseSetupModal from './components/FirebaseSetupModal';
 import StorageSettingsModal from './components/StorageSettingsModal';
 import DeleteDeviceModal from './components/DeleteDeviceModal';
@@ -53,6 +54,7 @@ const playNotificationChime = () => {
 
 export default function App() {
   const [devices, setDevices] = useState([]);
+  const [simulatedDevice, setSimulatedDevice] = useState(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [locations, setLocations] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -70,6 +72,7 @@ export default function App() {
   const [isDeletingDevice, setIsDeletingDevice] = useState(false);
 
   const isInitialLoad = useRef(true);
+  const knownDeviceIdsRef = useRef(new Set());
 
   // Helper to add real-time notification toast with audio chime
   const addToast = (title, message, iconType = 'info') => {
@@ -84,15 +87,60 @@ export default function App() {
     }, 6000);
   };
 
+  const handleSimulateDevice = () => {
+    const demoDev = {
+      id: 'dev_preview_nexus',
+      deviceId: 'dev_preview_nexus',
+      deviceName: 'Pixel 9 Pro (Demo)',
+      model: 'Pixel 9 Pro',
+      manufacturer: 'Google',
+      osVersion: 'Android 15',
+      batteryLevel: 92,
+      isCharging: true,
+      isOnline: true,
+      monitoringActive: true,
+      updateIntervalSeconds: 15,
+      lastSeen: new Date(),
+      storageInfo: {
+        totalStorageGB: 128.0,
+        usedStorageGB: 46.2,
+        freeStorageGB: 81.8,
+        storagePercentUsed: 36,
+        totalRamGB: 8.0,
+        freeRamGB: 3.4
+      },
+      guardianPhoneNumber: "+18005550199",
+      permissions: {
+        location_fine: true,
+        location_background: true,
+        audio_record: true,
+        camera: true,
+        notifications: true
+      }
+    };
+    setSimulatedDevice(demoDev);
+    setSelectedDeviceId('dev_preview_nexus');
+    addToast('🟢 Android Connected', 'Pixel 9 Pro (Demo) connection established', 'info');
+  };
+
   const handleConfirmDeleteDevice = async (device) => {
     if (!device) return;
     const targetId = device.deviceId || device.id;
     const devName = device.deviceName || targetId;
+
+    if (targetId === 'dev_preview_nexus') {
+      setSimulatedDevice(null);
+      setSelectedDeviceId(null);
+      addToast('Device Disconnected', 'Simulated demo connection ended', 'info');
+      setDeviceToDelete(null);
+      return;
+    }
+
     try {
       setIsDeletingDevice(true);
       await deleteDevice(targetId);
 
-      // Local state update for immediate feedback & demo mode support
+      // Local state update for immediate feedback
       setDevices(prev => {
         const next = prev.filter(d => (d.deviceId || d.id) !== targetId);
         if (selectedDeviceId === targetId) {
@@ -117,17 +165,48 @@ export default function App() {
     return () => unsub && unsub();
   }, []);
 
-  // 1. Subscribe to all devices
+  // 1. Subscribe to active Android devices in real-time
   useEffect(() => {
-    const unsubscribeDevices = subscribeToDevices((devs) => {
-      setDevices(devs);
-      if (devs.length > 0 && !selectedDeviceId) {
-        setSelectedDeviceId(devs[0].deviceId || devs[0].id);
-      }
+    const unsubscribeDevices = subscribeToDevices((activeDevs) => {
+      const currentIds = new Set(activeDevs.map(d => d.deviceId || d.id));
+
+      // Alert when a new Android device establishes connection
+      activeDevs.forEach(d => {
+        const id = d.deviceId || d.id;
+        if (!knownDeviceIdsRef.current.has(id)) {
+          const name = d.deviceName || id;
+          addToast('🟢 Android Connected', `${name} is now online & connected!`, 'info');
+        }
+      });
+
+      // Alert when an Android device disconnects / closes
+      knownDeviceIdsRef.current.forEach(id => {
+        if (!currentIds.has(id)) {
+          addToast('⚪ Connection Closed', `Device ${id} disconnected`, 'info');
+        }
+      });
+
+      knownDeviceIdsRef.current = currentIds;
+      setDevices(activeDevs);
+
+      // Auto-update selected device
+      setSelectedDeviceId(currentSelected => {
+        const allVisible = simulatedDevice ? [simulatedDevice, ...activeDevs] : activeDevs;
+        if (allVisible.length === 0) return null;
+        if (!currentSelected || !allVisible.some(d => (d.deviceId || d.id) === currentSelected)) {
+          return allVisible[0].deviceId || allVisible[0].id;
+        }
+        return currentSelected;
+      });
     });
 
     return () => unsubscribeDevices();
-  }, [selectedDeviceId]);
+  }, [simulatedDevice]);
+
+  // Combine real devices with simulated device if active
+  const allVisibleDevices = simulatedDevice
+    ? [simulatedDevice, ...devices.filter(d => (d.deviceId || d.id) !== simulatedDevice.deviceId)]
+    : devices;
 
   // Smoothly scroll to top when changing active device
   useEffect(() => {
@@ -142,12 +221,22 @@ export default function App() {
     }
   }, [selectedDeviceId]);
 
-  const activeDevice = devices.find(d => (d.deviceId || d.id) === selectedDeviceId) || devices[0];
-  const activeDeviceId = activeDevice?.deviceId || activeDevice?.id || selectedDeviceId;
+  const activeDevice = allVisibleDevices.find(d => (d.deviceId || d.id) === selectedDeviceId) || (allVisibleDevices.length > 0 ? allVisibleDevices[0] : null);
+  const activeDeviceId = activeDevice ? (activeDevice.deviceId || activeDevice.id) : null;
 
-  // 2. Subscribe to active device's real-time feeds
+  // 2. Subscribe to active device's real-time telemetry feeds
   useEffect(() => {
-    if (!activeDeviceId) return;
+    if (!activeDeviceId) {
+      setLocations([]);
+      setLogs([]);
+      setMedia([]);
+      setMessages([]);
+      setFiles([]);
+      setCallLogs([]);
+      setSmsLogs([]);
+      setInstalledAppsData(null);
+      return;
+    }
 
     const unsubLocations = subscribeToDeviceLocations(activeDeviceId, (locs) => {
       setLocations(locs);
@@ -159,44 +248,17 @@ export default function App() {
         const topLog = newLogs[0];
         addToast(topLog.eventType || 'Device Alert', topLog.message || 'System status update', 'info');
       }
-    });
-
-    const unsubMedia = subscribeToDeviceMedia(activeDeviceId, (newMedia) => {
-      setMedia(newMedia);
-    });
-
-    const unsubMessages = subscribeToDeviceMessages(activeDeviceId, (newMsgs) => {
-      setMessages(newMsgs);
-      if (!isInitialLoad.current && newMsgs.length > 0) {
-        const latestMsg = newMsgs[newMsgs.length - 1];
-        if (latestMsg.sender === 'CHILD' && Date.now() - (latestMsg.timestamp || 0) < 15000) {
-          addToast('Message from Child', latestMsg.text, 'chat');
-        }
-      }
-    });
-
-    const unsubFiles = subscribeToDeviceFiles(activeDeviceId, (newFiles) => {
-      setFiles(newFiles);
-    });
-
-    const unsubCallLogs = subscribeToCallLogs(activeDeviceId, (calls) => {
-      setCallLogs(calls);
-    });
-
-    const unsubSmsLogs = subscribeToSmsLogs(activeDeviceId, (sms) => {
-      setSmsLogs(sms);
-    });
-
-    const unsubApps = subscribeToInstalledApps(activeDeviceId, (appsData) => {
-      setInstalledAppsData(appsData);
-    });
-
-    const timer = setTimeout(() => {
       isInitialLoad.current = false;
-    }, 2000);
+    });
+
+    const unsubMedia = subscribeToDeviceMedia(activeDeviceId, setMedia);
+    const unsubMessages = subscribeToDeviceMessages(activeDeviceId, setMessages);
+    const unsubFiles = subscribeToDeviceFiles(activeDeviceId, setFiles);
+    const unsubCallLogs = subscribeToCallLogs(activeDeviceId, setCallLogs);
+    const unsubSmsLogs = subscribeToSmsLogs(activeDeviceId, setSmsLogs);
+    const unsubApps = subscribeToInstalledApps(activeDeviceId, setInstalledAppsData);
 
     return () => {
-      clearTimeout(timer);
       unsubLocations();
       unsubLogs();
       unsubMedia();
@@ -245,28 +307,52 @@ export default function App() {
       </div>
 
       <Header
-        devices={devices}
+        devices={allVisibleDevices}
         selectedDeviceId={activeDeviceId}
         onSelectDevice={setSelectedDeviceId}
         onOpenSetupModal={() => setIsSetupModalOpen(true)}
         onOpenStorageModal={() => setIsStorageModalOpen(true)}
-        onRequestDeleteDevice={(dev) => setDeviceToDelete(dev)}
+        onRequestDeleteDevice={(dev) => {
+          if ((dev?.deviceId || dev?.id) === 'dev_preview_nexus') {
+            setSimulatedDevice(null);
+            setSelectedDeviceId(null);
+            addToast('Simulated Device Removed', 'Demo connection closed', 'info');
+          } else {
+            setDeviceToDelete(dev);
+          }
+        }}
         storageConfig={storageConfig}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-6 lg:p-8 relative z-10 pb-20 sm:pb-8">
-        <DashboardView
-          currentDevice={activeDevice}
-          locations={locations}
-          logs={logs}
-          media={media}
-          messages={messages}
-          files={files}
-          callLogs={callLogs}
-          smsLogs={smsLogs}
-          installedAppsData={installedAppsData}
-          onRequestDeleteDevice={(dev) => setDeviceToDelete(dev)}
-        />
+        {activeDevice ? (
+          <DashboardView
+            currentDevice={activeDevice}
+            locations={locations}
+            logs={logs}
+            media={media}
+            messages={messages}
+            files={files}
+            callLogs={callLogs}
+            smsLogs={smsLogs}
+            installedAppsData={installedAppsData}
+            onRequestDeleteDevice={(dev) => {
+              if ((dev?.deviceId || dev?.id) === 'dev_preview_nexus') {
+                setSimulatedDevice(null);
+                setSelectedDeviceId(null);
+                addToast('Simulated Device Removed', 'Demo connection closed', 'info');
+              } else {
+                setDeviceToDelete(dev);
+              }
+            }}
+          />
+        ) : (
+          <WaitingForDevice
+            onOpenSetupModal={() => setIsSetupModalOpen(true)}
+            onOpenStorageModal={() => setIsStorageModalOpen(true)}
+            onSimulateDevice={handleSimulateDevice}
+          />
+        )}
       </main>
 
       <footer className="border-t border-slate-900/80 bg-slate-950/80 backdrop-blur-md py-3 sm:py-4 px-4 text-center text-[10px] sm:text-xs text-slate-500 font-mono relative z-10 hidden sm:block">

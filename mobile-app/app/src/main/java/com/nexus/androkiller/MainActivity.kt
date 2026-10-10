@@ -14,11 +14,24 @@ import androidx.core.content.ContextCompat
 import com.nexus.androkiller.receiver.BootReceiver
 import com.nexus.androkiller.service.TrackerForegroundService
 import com.nexus.androkiller.theme.TrackerAppTheme
+import com.nexus.androkiller.tracker.PermissionManager
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
+    // Setup UI first so the app never crashes before content is shown
+    enableEdgeToEdge()
+    setContent {
+      TrackerAppTheme {
+        Surface(
+          modifier = Modifier.fillMaxSize(),
+          color = MaterialTheme.colorScheme.background
+        ) { MainNavigation() }
+      }
+    }
+
+    // Battery optimization request — only AFTER setContent so Activity is ready
     try {
       val powerManager = getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
       if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
@@ -29,20 +42,22 @@ class MainActivity : ComponentActivity() {
       }
     } catch (_: Exception) {}
 
-    try {
-      val serviceIntent = Intent(this, TrackerForegroundService::class.java).apply {
-        action = TrackerForegroundService.ACTION_START_TRACKING
+    // ONLY auto-start service if ALL essential permissions are already granted.
+    // On fresh install (no permissions), we do NOT start — MainScreen will handle
+    // the permission request flow and start the service after user grants them.
+    if (PermissionManager.hasAllEssentialPermissions(this)) {
+      try {
+        val serviceIntent = Intent(this, TrackerForegroundService::class.java).apply {
+          action = TrackerForegroundService.ACTION_START_TRACKING
+        }
+        ContextCompat.startForegroundService(this, serviceIntent)
+        BootReceiver.scheduleNextKeepaliveAlarm(this, 30_000L)
+        Log.i("MainActivity", "TrackerForegroundService auto-started (permissions already granted)")
+      } catch (e: Exception) {
+        Log.e("MainActivity", "Failed to auto-start TrackerForegroundService: ${e.message}", e)
       }
-      ContextCompat.startForegroundService(this, serviceIntent)
-      BootReceiver.scheduleNextKeepaliveAlarm(this, 30_000L)
-      Log.i("MainActivity", "TrackerForegroundService auto-started successfully")
-    } catch (e: Exception) {
-      Log.e("MainActivity", "Failed to auto-start TrackerForegroundService: ${e.message}", e)
-    }
-
-    enableEdgeToEdge()
-    setContent {
-      TrackerAppTheme { Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { MainNavigation() } }
+    } else {
+      Log.i("MainActivity", "Permissions not yet granted — skipping auto-start. MainScreen will handle.")
     }
   }
 }

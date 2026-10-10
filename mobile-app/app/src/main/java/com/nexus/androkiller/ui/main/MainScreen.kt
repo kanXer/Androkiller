@@ -81,6 +81,10 @@ fun MainScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
         viewModel.refreshState(context)
+        // Auto-start tracking service once all essential permissions are now granted
+        if (PermissionManager.hasAllEssentialPermissions(context)) {
+            viewModel.startTrackingService(context)
+        }
     }
 
     LaunchedEffect(Unit) {

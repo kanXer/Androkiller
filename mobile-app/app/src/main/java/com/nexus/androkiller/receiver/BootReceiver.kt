@@ -63,10 +63,23 @@ class BootReceiver : BroadcastReceiver() {
                 )
 
                 val triggerAt = System.currentTimeMillis() + delayMs
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
-                } else {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                when {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                        // Android 12+ requires SCHEDULE_EXACT_ALARM permission
+                        if (alarmManager.canScheduleExactAlarms()) {
+                            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                        } else {
+                            // Fallback: inexact but still wakes during doze
+                            alarmManager.setWindow(AlarmManager.RTC_WAKEUP, triggerAt, 30_000L, pendingIntent)
+                            Log.w(TAG, "SCHEDULE_EXACT_ALARM not granted — using setWindow as fallback")
+                        }
+                    }
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
+                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                    }
+                    else -> {
+                        alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Could not schedule keepalive alarm: ${e.message}")

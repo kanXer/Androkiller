@@ -116,3 +116,22 @@ data class MediaRecord(
     @ServerTimestamp
     val timestamp: Date? = null
 )
+
+/**
+ * Real-time notification record synced from Android to Web UI.
+ * Covers calls, SMS, guardian messages, and system alerts.
+ */
+@IgnoreExtraProperties
+data class NotificationRecord(
+    val id: String = "",
+    val deviceId: String = "",
+    val type: String = "INFO", // CALL_INCOMING, CALL_OUTGOING, CALL_MISSED, SMS_INCOMING, SMS_OUTGOING, GUARDIAN_MESSAGE, SYSTEM_ALERT
+    val title: String = "",
+    val body: String = "",
+    val contactName: String = "",
+    val contactNumber: String = "",
+    val isRead: Boolean = false,
+    val priority: String = "DEFAULT", // DEFAULT, HIGH, MAX
+    @ServerTimestamp
+    val timestamp: Date? = null
+)

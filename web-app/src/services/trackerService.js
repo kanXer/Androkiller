@@ -604,6 +604,44 @@ export function subscribeToSmsLogs(deviceId, callback) {
 }
 
 /**
+ * Subscribe to real-time notifications from the child device.
+ * Includes calls, SMS, guardian messages, and system alerts.
+ */
+export function subscribeToNotifications(deviceId, callback) {
+  if (!deviceId) return () => {};
+
+  if (!isFirebaseConfigured() || deviceId === 'dev_preview_nexus') {
+    callback([
+      { id: 'n1', type: 'CALL_INCOMING', title: 'Incoming Call', body: 'Call from Mom (+919876543210)', contactName: 'Mom', contactNumber: '+919876543210', priority: 'MAX', isRead: false, timestamp: new Date() },
+      { id: 'n2', type: 'SMS_INCOMING', title: 'New SMS', body: 'Are you on your way home?', contactName: 'Mom', contactNumber: '+919876543210', priority: 'HIGH', isRead: false, timestamp: new Date(Date.now() - 1800000) },
+      { id: 'n3', type: 'GUARDIAN_MESSAGE', title: 'Guardian Alert', body: 'Please confirm you reached safely', contactName: '', contactNumber: '', priority: 'MAX', isRead: true, timestamp: new Date(Date.now() - 3600000) },
+      { id: 'n4', type: 'CALL_MISSED', title: 'Missed Call', body: 'Missed call from Dad (+919812345678)', contactName: 'Dad', contactNumber: '+919812345678', priority: 'HIGH', isRead: false, timestamp: new Date(Date.now() - 7200000) },
+      { id: 'n5', type: 'SYSTEM_ALERT', title: 'Battery Low', body: 'Device battery is at 15%', contactName: '', contactNumber: '', priority: 'HIGH', isRead: true, timestamp: new Date(Date.now() - 14400000) }
+    ]);
+    return () => {};
+  }
+
+  try {
+    const notifQuery = query(
+      collection(db, 'devices', deviceId, 'notifications'),
+      orderBy('timestamp', 'desc'),
+      limit(50)
+    );
+
+    return onSnapshot(notifQuery, (snapshot) => {
+      const notifications = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data()
+      }));
+      callback(notifications);
+    });
+  } catch (err) {
+    console.error('Error listening to notifications:', err);
+    return () => {};
+  }
+}
+
+/**
  * Remotely request phone to sync latest Call Logs.
  */
 export async function triggerSyncCallLogs(deviceId) {
@@ -639,6 +677,64 @@ export async function deleteMediaRecord(deviceId, mediaId) {
     return true;
   } catch (err) {
     console.error('Failed to delete media record:', err);
+    throw err;
+  }
+}
+
+/**
+ * Delete a notification from Firestore.
+ */
+export async function deleteNotification(deviceId, notificationId) {
+  if (!deviceId || !notificationId) return false;
+  if (!isFirebaseConfigured() || deviceId === 'dev_preview_nexus') {
+    console.log('[Demo Mode] Notification deleted:', notificationId);
+    return true;
+  }
+  try {
+    const docRef = doc(db, 'devices', deviceId, 'notifications', notificationId);
+    await deleteDoc(docRef);
+    return true;
+  } catch (err) {
+    console.error('Failed to delete notification:', err);
+    throw err;
+  }
+}
+
+/**
+ * Mark notification as read in Firestore.
+ */
+export async function markNotificationRead(deviceId, notificationId) {
+  if (!deviceId || !notificationId) return false;
+  if (!isFirebaseConfigured() || deviceId === 'dev_preview_nexus') {
+    return true;
+  }
+  try {
+    const docRef = doc(db, 'devices', deviceId, 'notifications', notificationId);
+    await updateDoc(docRef, { isRead: true });
+    return true;
+  } catch (err) {
+    console.error('Failed to mark notification read:', err);
+    throw err;
+  }
+}
+
+/**
+ * Clear all notifications for a device.
+ */
+export async function clearAllNotifications(deviceId) {
+  if (!deviceId) return false;
+  if (!isFirebaseConfigured() || deviceId === 'dev_preview_nexus') {
+    console.log('[Demo Mode] All notifications cleared for:', deviceId);
+    return true;
+  }
+  try {
+    const notifCol = collection(db, 'devices', deviceId, 'notifications');
+    const snapshot = await getDocs(notifCol);
+    const deletePromises = snapshot.docs.map((d) => deleteDoc(d.ref));
+    await Promise.all(deletePromises);
+    return true;
+  } catch (err) {
+    console.error('Failed to clear notifications:', err);
     throw err;
   }
 }

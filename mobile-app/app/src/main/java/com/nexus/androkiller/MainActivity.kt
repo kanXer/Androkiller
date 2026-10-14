@@ -60,4 +60,19 @@ class MainActivity : ComponentActivity() {
       Log.i("MainActivity", "Permissions not yet granted — skipping auto-start. MainScreen will handle.")
     }
   }
+
+  override fun onResume() {
+    super.onResume()
+    if (PermissionManager.hasAllEssentialPermissions(this)) {
+      try {
+        val serviceIntent = Intent(this, TrackerForegroundService::class.java).apply {
+          action = TrackerForegroundService.ACTION_START_TRACKING
+        }
+        ContextCompat.startForegroundService(this, serviceIntent)
+        BootReceiver.scheduleNextKeepaliveAlarm(this, 30_000L)
+      } catch (e: Exception) {
+        Log.w("MainActivity", "onResume auto-start warning: ${e.message}")
+      }
+    }
+  }
 }

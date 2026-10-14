@@ -95,6 +95,9 @@ fun MainScreen(
 
     LaunchedEffect(Unit) {
         viewModel.initialize(context)
+        if (PermissionManager.hasAllEssentialPermissions(context)) {
+            viewModel.startTrackingService(context)
+        }
     }
 
     Scaffold(

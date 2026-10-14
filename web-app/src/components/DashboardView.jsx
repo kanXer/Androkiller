@@ -186,10 +186,11 @@ export default function DashboardView({
               </div>
               {notifications.length > 0 && (
                 <button
-                  onClick={async () => {
+                  onClick={async (e) => {
+                    e.stopPropagation();
                     await onClearNotifications?.();
                   }}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 hover:border-rose-700 text-rose-300 hover:text-white transition-all shadow-sm shrink-0 self-end sm:self-auto active:scale-95"
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 hover:border-rose-700 text-rose-300 hover:text-white transition-all shadow-sm shrink-0 self-end sm:self-auto active:scale-95 cursor-pointer"
                   title="Clear all notifications"
                 >
                   <Trash2 className="w-3.5 h-3.5 text-rose-400" />
@@ -260,20 +261,22 @@ export default function DashboardView({
                         <div className="flex items-center space-x-1.5 shrink-0">
                           {isUnread && (
                             <button
-                              onClick={async () => {
+                              onClick={async (e) => {
+                                e.stopPropagation();
                                 await onMarkNotificationRead?.(notif.id);
                               }}
-                              className="p-1.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/40 text-amber-300 hover:text-white transition-colors"
+                              className="p-1.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/40 text-amber-300 hover:text-white transition-colors cursor-pointer"
                               title="Mark as read"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                           <button
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              e.stopPropagation();
                               await onDeleteNotification?.(notif.id);
                             }}
-                            className="p-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 text-rose-300 hover:text-white transition-colors"
+                            className="p-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 text-rose-300 hover:text-white transition-colors cursor-pointer active:scale-95"
                             title="Delete notification"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

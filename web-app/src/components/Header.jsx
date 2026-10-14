@@ -86,7 +86,7 @@ export default function Header({
               ) : (
                 devices.map((dev) => (
                   <option key={dev.deviceId || dev.id} value={dev.deviceId || dev.id} className="bg-slate-900 text-white">
-                    {dev.deviceName || dev.deviceId} • Online 🟢
+                    {dev.deviceName || dev.deviceId} • {dev.isConnected !== false ? 'Online 🟢' : 'Standby 🟡'}
                   </option>
                 ))
               )}
@@ -107,10 +107,17 @@ export default function Header({
 
           {/* Connection Status Badge (hidden on mobile, visible on sm+) */}
           <div className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold bg-slate-800/60 border-slate-700 shrink-0">
-            {devices.length > 0 ? (
+            {devices.some(d => d.isConnected !== false) ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span className="text-emerald-400 font-mono">{devices.length} Online</span>
+                <span className="text-emerald-400 font-mono">
+                  {devices.filter(d => d.isConnected !== false).length} Online
+                </span>
+              </>
+            ) : devices.length > 0 ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                <span className="text-amber-300 font-mono">{devices.length} Paired</span>
               </>
             ) : (
               <>

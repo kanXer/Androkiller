@@ -78,6 +78,9 @@ export default function App() {
 
   const isInitialLoad = useRef(true);
   const knownDeviceIdsRef = useRef(new Set());
+  // When true, temporarily ignore Firestore notification updates (during delete/clear ops)
+  const suppressNotifUpdatesRef = useRef(false);
+
 
   // Helper to add real-time notification toast with audio chime
   const addToast = (title, message, iconType = 'info') => {
@@ -274,7 +277,14 @@ export default function App() {
         { id: 'n5', type: 'SYSTEM_ALERT', title: 'Battery Low', body: 'Device battery is at 15%', contactName: '', contactNumber: '', priority: 'HIGH', isRead: true, timestamp: new Date(Date.now() - 14400000) }
       ] : prev);
     } else {
-      unsubNotifications = subscribeToNotifications(activeDeviceId, setNotifications);
+      unsubNotifications = subscribeToNotifications(activeDeviceId, (updatedNotifs) => {
+        // Skip Firestore updates while a delete/clear is in progress
+        // to prevent the listener from immediately re-populating deleted items.
+        if (!suppressNotifUpdatesRef.current) {
+          setNotifications(updatedNotifs);
+        }
+      });
+
     }
     
     const unsubApps = subscribeToInstalledApps(activeDeviceId, setInstalledAppsData);
@@ -359,15 +369,47 @@ export default function App() {
             smsLogs={smsLogs}
             notifications={notifications}
             installedAppsData={installedAppsData}
-            onDeleteNotification={activeDeviceId === 'dev_preview_nexus' 
-              ? (id) => setNotifications(prev => prev.filter(n => n.id !== id))
-              : (id) => deleteNotification(activeDeviceId, id)}
-            onClearNotifications={activeDeviceId === 'dev_preview_nexus'
-              ? () => setNotifications([])
-              : () => clearAllNotifications(activeDeviceId)}
-            onMarkNotificationRead={activeDeviceId === 'dev_preview_nexus'
-              ? (id) => setNotifications(prev => prev.map(n => n.id === id ? {...n, isRead: true} : n))
-              : (id) => markNotificationRead(activeDeviceId, id)}
+            onDeleteNotification={async (id) => {
+              // Suppress Firestore listener briefly so deleted item doesn't bounce back
+              suppressNotifUpdatesRef.current = true;
+              setNotifications(prev => prev.filter(n => n.id !== id));
+              if (activeDeviceId !== 'dev_preview_nexus') {
+                try {
+                  await deleteNotification(activeDeviceId, id);
+                } catch (err) {
+                  console.error('Failed to delete notification from Firestore:', err);
+                  addToast('Delete Notice', 'Removed from view (server sync queued)', 'info');
+                }
+              }
+              // Re-enable listener after 3 seconds (enough time for Firestore to confirm delete)
+              setTimeout(() => { suppressNotifUpdatesRef.current = false; }, 3000);
+            }}
+            onClearNotifications={async () => {
+              // Suppress Firestore listener during and after clear to prevent bounce-back
+              suppressNotifUpdatesRef.current = true;
+              setNotifications([]);
+              if (activeDeviceId !== 'dev_preview_nexus') {
+                try {
+                  await clearAllNotifications(activeDeviceId);
+                } catch (err) {
+                  console.error('Failed to clear notifications from Firestore:', err);
+                  addToast('Clear Notice', 'Cleared from view (server sync queued)', 'info');
+                }
+              }
+              // Re-enable listener after 5 seconds — gives Firestore time to propagate deletes
+              setTimeout(() => { suppressNotifUpdatesRef.current = false; }, 5000);
+            }}
+
+            onMarkNotificationRead={async (id) => {
+              setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+              if (activeDeviceId !== 'dev_preview_nexus') {
+                try {
+                  await markNotificationRead(activeDeviceId, id);
+                } catch (err) {
+                  console.error('Failed to mark notification read:', err);
+                }
+              }
+            }}
             onRequestDeleteDevice={(dev) => {
               if ((dev?.deviceId || dev?.id) === 'dev_preview_nexus') {
                 setSimulatedDevice(null);

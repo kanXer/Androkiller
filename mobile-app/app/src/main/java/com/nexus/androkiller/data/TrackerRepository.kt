@@ -60,8 +60,19 @@ class TrackerRepository(private val context: Context) {
         } else null
 
     init {
-        // Listen to remote storage configuration (e.g. set from web dashboard)
+        // Enable local offline persistence and cache
         if (isFirebaseAvailable) {
+            try {
+                val db = FirebaseFirestore.getInstance()
+                val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
+                    .setPersistenceEnabled(true)
+                    .build()
+                db.firestoreSettings = settings
+            } catch (e: Exception) {
+                Log.w(TAG, "Error configuring firestore persistence: ${e.message}")
+            }
+
+            // Listen to remote storage configuration (e.g. set from web dashboard)
             try {
                 FirebaseFirestore.getInstance().collection("config").document("storage")
                     .addSnapshotListener { snapshot, e ->

@@ -17,16 +17,92 @@ import { db, isFirebaseConfigured } from '../firebase/config';
 import { dataUriToBlob, triggerBrowserBlobDownload, downloadFileSafely, downloadFromRemoteUrl } from '../utils/fileDownloader';
 
 /**
- * Helper to determine if an Android device currently has an active connection.
- * Android foreground service sends a heartbeat to Firestore every 15 seconds.
- * 
- * A device is considered CONNECTED if:
- * 1. isOnline !== false
- * 2. monitoringActive !== false
- * 3. connectionStatus is not 'CLOSED' or 'DISCONNECTED'
- * 4. lastSeen / lastUpdated timestamp was refreshed within maxHeartbeatAgeSeconds (default 35s).
+ * Helper to create a resilient Firestore real-time listener that auto-reconnects
+ * whenever an error occurs, the network recovers, or the tab becomes visible.
  */
-export function isDeviceConnected(device, maxHeartbeatAgeSeconds = 35) {
+export function createResilientListener(setupFn, name = 'listener') {
+  let isCancelled = false;
+  let activeUnsubscribe = null;
+  let retryTimeout = null;
+  let retryDelay = 2000;
+
+  const start = () => {
+    if (isCancelled) return;
+    try {
+      activeUnsubscribe = setupFn((err) => {
+        console.warn(`[${name}] listener error:`, err?.message || err);
+        if (isCancelled) return;
+        if (activeUnsubscribe) {
+          try { activeUnsubscribe(); } catch (_) {}
+          activeUnsubscribe = null;
+        }
+        // Auto-reconnect with backoff
+        if (!retryTimeout) {
+          retryTimeout = setTimeout(() => {
+            retryTimeout = null;
+            retryDelay = Math.min(retryDelay * 1.5, 20000);
+            start();
+          }, retryDelay);
+        }
+      });
+      retryDelay = 2000;
+    } catch (e) {
+      console.warn(`[${name}] setup exception:`, e);
+      if (!isCancelled && !retryTimeout) {
+        retryTimeout = setTimeout(() => {
+          retryTimeout = null;
+          start();
+        }, 3000);
+      }
+    }
+  };
+
+  start();
+
+  const handleOnline = () => {
+    if (retryTimeout) {
+      clearTimeout(retryTimeout);
+      retryTimeout = null;
+    }
+    if (activeUnsubscribe) {
+      try { activeUnsubscribe(); } catch (_) {}
+      activeUnsubscribe = null;
+    }
+    start();
+  };
+
+  const handleVisibility = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      if (!activeUnsubscribe && !isCancelled) {
+        start();
+      }
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', handleOnline);
+    document.addEventListener('visibilitychange', handleVisibility);
+  }
+
+  return () => {
+    isCancelled = true;
+    if (retryTimeout) clearTimeout(retryTimeout);
+    if (activeUnsubscribe) {
+      try { activeUnsubscribe(); } catch (_) {}
+      activeUnsubscribe = null;
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', handleOnline);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    }
+  };
+}
+
+/**
+ * Helper to determine if an Android device currently has an active connection.
+ * Default heartbeat tolerance: 120 seconds (2 minutes).
+ */
+export function isDeviceConnected(device, maxHeartbeatAgeSeconds = 120) {
   if (!device) return false;
 
   // Explicit offline flags
@@ -59,31 +135,34 @@ export function isDeviceConnected(device, maxHeartbeatAgeSeconds = 35) {
   const now = Date.now();
   const ageSeconds = (now - timestampMs) / 1000;
 
-  // Active if timestamp is within maxHeartbeatAgeSeconds (tolerant to -60s clock skew)
-  return ageSeconds >= -60 && ageSeconds <= maxHeartbeatAgeSeconds;
+  // Active if timestamp is within maxHeartbeatAgeSeconds (tolerant to clock skew)
+  return ageSeconds >= -120 && ageSeconds <= maxHeartbeatAgeSeconds;
 }
 
 /**
- * Subscribe to devices. By default, returns ONLY actively connected devices.
- * As soon as an Android device connects, it appears in the list.
- * As soon as the connection closes (or heartbeat stops), it disappears.
+ * Subscribe to devices. By default, returns ALL registered devices,
+ * annotating each with `isConnected: boolean` so paired devices never disappear.
  */
 export function subscribeToDevices(callback, onError, options = {}) {
-  const { onlyConnected = true, maxAgeSeconds = 35 } = options;
+  const { onlyConnected = false, maxAgeSeconds = 120 } = options;
 
   if (!isFirebaseConfigured()) {
     callback([]);
     return () => {};
   }
 
-  try {
+  return createResilientListener((onErrorInternal) => {
     const devicesCol = collection(db, 'devices');
     let latestRawDevices = [];
 
     const publishFilteredDevices = () => {
+      const processed = latestRawDevices.map(d => ({
+        ...d,
+        isConnected: isDeviceConnected(d, maxAgeSeconds)
+      }));
       const activeDevices = onlyConnected
-        ? latestRawDevices.filter(d => isDeviceConnected(d, maxAgeSeconds))
-        : latestRawDevices;
+        ? processed.filter(d => d.isConnected)
+        : processed;
       callback(activeDevices);
     };
 
@@ -100,24 +179,20 @@ export function subscribeToDevices(callback, onError, options = {}) {
       (err) => {
         console.warn('Firestore devices listener error:', err);
         if (onError) onError(err);
+        onErrorInternal(err);
       }
     );
 
-    // Live heartbeat timer: checks every 2.5s so disconnected/killed devices
-    // disappear automatically even when no new Firestore write occurs.
+    // Heartbeat ticker checks status every 5s
     const ticker = setInterval(() => {
       publishFilteredDevices();
-    }, 2500);
+    }, 5000);
 
     return () => {
       unsubscribe();
       clearInterval(ticker);
     };
-  } catch (err) {
-    console.error('Failed to setup devices listener:', err);
-    if (onError) onError(err);
-    return () => {};
-  }
+  }, 'devices');
 }
 
 /**
@@ -621,24 +696,28 @@ export function subscribeToNotifications(deviceId, callback) {
     return () => {};
   }
 
-  try {
+  return createResilientListener((onErrorInternal) => {
     const notifQuery = query(
       collection(db, 'devices', deviceId, 'notifications'),
       orderBy('timestamp', 'desc'),
       limit(50)
     );
 
-    return onSnapshot(notifQuery, (snapshot) => {
-      const notifications = snapshot.docs.map((d) => ({
-        id: d.id,
-        ...d.data()
-      }));
-      callback(notifications);
-    });
-  } catch (err) {
-    console.error('Error listening to notifications:', err);
-    return () => {};
-  }
+    return onSnapshot(
+      notifQuery,
+      (snapshot) => {
+        const notifications = snapshot.docs.map((d) => ({
+          ...d.data(),
+          id: d.id // Guarantee id is the Firestore document ID
+        }));
+        callback(notifications);
+      },
+      (err) => {
+        console.warn('Error listening to notifications:', err);
+        onErrorInternal(err);
+      }
+    );
+  }, 'notifications');
 }
 
 /**
@@ -719,7 +798,8 @@ export async function markNotificationRead(deviceId, notificationId) {
 }
 
 /**
- * Clear all notifications for a device.
+ * Clear all notifications for a device — deletes every document in the
+ * notifications subcollection, batching 100 at a time until empty.
  */
 export async function clearAllNotifications(deviceId) {
   if (!deviceId) return false;
@@ -729,9 +809,17 @@ export async function clearAllNotifications(deviceId) {
   }
   try {
     const notifCol = collection(db, 'devices', deviceId, 'notifications');
-    const snapshot = await getDocs(notifCol);
-    const deletePromises = snapshot.docs.map((d) => deleteDoc(d.ref));
-    await Promise.all(deletePromises);
+    // Loop until no documents remain
+    let totalDeleted = 0;
+    while (true) {
+      const snapshot = await getDocs(query(notifCol, limit(100)));
+      if (snapshot.empty) break;
+      const deletePromises = snapshot.docs.map((d) => deleteDoc(d.ref));
+      await Promise.all(deletePromises);
+      totalDeleted += snapshot.docs.length;
+      if (snapshot.docs.length < 100) break; // Last partial batch
+    }
+    console.log(`[clearAllNotifications] Deleted ${totalDeleted} notification docs for ${deviceId}`);
     return true;
   } catch (err) {
     console.error('Failed to clear notifications:', err);

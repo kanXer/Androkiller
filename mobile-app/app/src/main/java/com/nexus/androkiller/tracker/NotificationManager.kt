@@ -30,11 +30,16 @@ class NotificationManager(private val context: Context) {
             null
         }
 
+    private val prefs = context.getSharedPreferences("tracker_prefs", Context.MODE_PRIVATE)
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var callListener: PhoneStateListener? = null
     private var callLogObserver: ContentObserver? = null
     private var smsObserver: ContentObserver? = null
     private var isListening = false
+
+    // In-memory dedup set — loaded from SharedPrefs on start so service restart
+    // doesn't re-push already-seen notifications.
+    private val recentNotifKeys = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
 
     private val TAG = "NotificationManager"
 
@@ -42,10 +47,31 @@ class NotificationManager(private val context: Context) {
         if (isListening) return
         isListening = true
 
+        // Load persisted dedup keys from previous session so we don't re-push
+        // notifications that were already sent before a service restart.
+        val savedKeys = prefs.getStringSet("recent_notif_keys", emptySet()) ?: emptySet()
+        recentNotifKeys.addAll(savedKeys)
+        Log.d(TAG, "Loaded ${savedKeys.size} persisted dedup keys from SharedPrefs")
+
+        // Initialize cursors from SharedPreferences or current latest ID to prevent dumping historical logs
+        var savedCallId = prefs.getLong("last_call_log_id", -1L)
+        if (savedCallId <= 0L) {
+            savedCallId = getLatestCallLogId()
+            prefs.edit().putLong("last_call_log_id", savedCallId).apply()
+        }
+        lastCallLogId = savedCallId
+
+        var savedSmsId = prefs.getLong("last_sms_id", -1L)
+        if (savedSmsId <= 0L) {
+            savedSmsId = getLatestSmsId()
+            prefs.edit().putLong("last_sms_id", savedSmsId).apply()
+        }
+        lastSmsId = savedSmsId
+
         startCallListener(deviceId)
         startCallLogObserver(deviceId)
         startSmsObserver(deviceId)
-        Log.i(TAG, "Started real-time notification listeners for device: $deviceId")
+        Log.i(TAG, "Started real-time notification listeners for device: $deviceId (callId: $lastCallLogId, smsId: $lastSmsId)")
     }
 
     fun stopListening() {
@@ -79,6 +105,44 @@ class NotificationManager(private val context: Context) {
         smsObserver = null
 
         Log.i(TAG, "Stopped real-time notification listeners")
+    }
+
+    private fun getLatestCallLogId(): Long {
+        try {
+            val cursor = context.contentResolver.query(
+                CallLog.Calls.CONTENT_URI,
+                arrayOf(CallLog.Calls._ID),
+                null,
+                null,
+                "${CallLog.Calls.DATE} DESC LIMIT 1"
+            )
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val idCol = it.getColumnIndex(CallLog.Calls._ID)
+                    if (idCol != -1) return it.getLong(idCol)
+                }
+            }
+        } catch (_: Exception) {}
+        return 0L
+    }
+
+    private fun getLatestSmsId(): Long {
+        try {
+            val cursor = context.contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                arrayOf(Telephony.Sms._ID),
+                null,
+                null,
+                "${Telephony.Sms.DATE} DESC LIMIT 1"
+            )
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val idCol = it.getColumnIndex(Telephony.Sms._ID)
+                    if (idCol != -1) return it.getLong(idCol)
+                }
+            }
+        } catch (_: Exception) {}
+        return 0L
     }
 
     private fun startCallListener(deviceId: String) {
@@ -162,8 +226,15 @@ class NotificationManager(private val context: Context) {
         }
 
         try {
-            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            tm.listen(callListener!!, PhoneStateListener.LISTEN_CALL_STATE)
+            val hasPhoneState = androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.READ_PHONE_STATE
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (hasPhoneState) {
+                val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+                tm.listen(callListener!!, PhoneStateListener.LISTEN_CALL_STATE)
+            } else {
+                Log.w(TAG, "READ_PHONE_STATE not granted — skipping call state listener")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register call listener: ${e.message}", e)
         }
@@ -194,6 +265,12 @@ class NotificationManager(private val context: Context) {
 
     private suspend fun checkNewCallLog(deviceId: String) {
         try {
+            if (lastCallLogId <= 0L) {
+                lastCallLogId = getLatestCallLogId()
+                prefs.edit().putLong("last_call_log_id", lastCallLogId).apply()
+                return
+            }
+
             val projection = arrayOf(
                 CallLog.Calls._ID,
                 CallLog.Calls.NUMBER,
@@ -208,7 +285,7 @@ class NotificationManager(private val context: Context) {
                 projection,
                 "${CallLog.Calls._ID} > ?",
                 arrayOf(lastCallLogId.toString()),
-                "${CallLog.Calls.DATE} DESC"
+                "${CallLog.Calls.DATE} DESC LIMIT 5"
             )
 
             cursor?.use {
@@ -220,6 +297,7 @@ class NotificationManager(private val context: Context) {
                     val dateCol = it.getColumnIndex(CallLog.Calls.DATE)
                     val durCol = it.getColumnIndex(CallLog.Calls.DURATION)
 
+                    var maxIdFound = lastCallLogId
                     do {
                         val id = if (idCol != -1) it.getLong(idCol) else 0L
                         val number = if (numCol != -1) it.getString(numCol) ?: "Unknown" else "Unknown"
@@ -228,8 +306,8 @@ class NotificationManager(private val context: Context) {
                         val date = if (dateCol != -1) it.getLong(dateCol) else 0L
                         val duration = if (durCol != -1) it.getLong(durCol) else 0L
 
-                        if (id > lastCallLogId) {
-                            lastCallLogId = id
+                        if (id > maxIdFound) {
+                            maxIdFound = id
                         }
 
                         val typeStr = when (rawType) {
@@ -270,6 +348,11 @@ class NotificationManager(private val context: Context) {
                             priority = priority
                         )
                     } while (it.moveToNext())
+
+                    if (maxIdFound > lastCallLogId) {
+                        lastCallLogId = maxIdFound
+                        prefs.edit().putLong("last_call_log_id", lastCallLogId).apply()
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -302,6 +385,12 @@ class NotificationManager(private val context: Context) {
 
     private suspend fun checkNewSms(deviceId: String) {
         try {
+            if (lastSmsId <= 0L) {
+                lastSmsId = getLatestSmsId()
+                prefs.edit().putLong("last_sms_id", lastSmsId).apply()
+                return
+            }
+
             val projection = arrayOf(
                 Telephony.Sms._ID,
                 Telephony.Sms.ADDRESS,
@@ -315,7 +404,7 @@ class NotificationManager(private val context: Context) {
                 projection,
                 "${Telephony.Sms._ID} > ?",
                 arrayOf(lastSmsId.toString()),
-                "${Telephony.Sms.DATE} DESC"
+                "${Telephony.Sms.DATE} DESC LIMIT 5"
             )
 
             cursor?.use {
@@ -326,6 +415,7 @@ class NotificationManager(private val context: Context) {
                     val typeCol = it.getColumnIndex(Telephony.Sms.TYPE)
                     val dateCol = it.getColumnIndex(Telephony.Sms.DATE)
 
+                    var maxIdFound = lastSmsId
                     do {
                         val id = if (idCol != -1) it.getLong(idCol) else 0L
                         val address = if (addrCol != -1) it.getString(addrCol) ?: "Unknown" else "Unknown"
@@ -333,8 +423,8 @@ class NotificationManager(private val context: Context) {
                         val rawType = if (typeCol != -1) it.getInt(typeCol) else -1
                         val date = if (dateCol != -1) it.getLong(dateCol) else 0L
 
-                        if (id > lastSmsId) {
-                            lastSmsId = id
+                        if (id > maxIdFound) {
+                            maxIdFound = id
                         }
 
                         val typeStr = when (rawType) {
@@ -357,6 +447,11 @@ class NotificationManager(private val context: Context) {
                             priority = priority
                         )
                     } while (it.moveToNext())
+
+                    if (maxIdFound > lastSmsId) {
+                        lastSmsId = maxIdFound
+                        prefs.edit().putLong("last_sms_id", lastSmsId).apply()
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -373,42 +468,63 @@ class NotificationManager(private val context: Context) {
         contactNumber: String = "",
         priority: String = "DEFAULT"
     ) {
+        // Build a deterministic key from the notification content.
+        // Using body.take(80) avoids giant keys while still uniquely identifying the event.
+        val notifKey = "$type|$contactNumber|${body.take(80)}"
+
+        if (recentNotifKeys.contains(notifKey)) {
+            Log.d(TAG, "Skipping duplicate notification: $notifKey")
+            return
+        }
+
+        // Keep the in-memory set bounded at 200 entries
+        if (recentNotifKeys.size >= 200) {
+            val iterator = recentNotifKeys.iterator()
+            repeat(20) { if (iterator.hasNext()) { iterator.next(); iterator.remove() } }
+        }
+        recentNotifKeys.add(notifKey)
+
+        // Persist dedup keys to SharedPrefs so a service restart doesn't re-push.
+        // Save only up to 150 most-recent keys to avoid huge pref file.
+        val toSave = synchronized(recentNotifKeys) {
+            recentNotifKeys.toList().takeLast(150).toSet()
+        }
+        prefs.edit().putStringSet("recent_notif_keys", toSave).apply()
+
+
         scope.launch {
             val db = firestore ?: return@launch
             try {
-                val notification = NotificationRecord(
-                    id = UUID.randomUUID().toString(),
-                    deviceId = deviceId,
-                    type = type,
-                    title = title,
-                    body = body,
-                    contactName = contactName,
-                    contactNumber = contactNumber,
-                    isRead = false,
-                    priority = priority,
-                    timestamp = null
-                )
+                // Deterministic document ID: SHA-256 hash of notifKey, hex-encoded (first 40 chars).
+                // This guarantees set() is idempotent — calling it twice with same content
+                // overwrites the existing doc instead of creating a new one.
+                val docId = notifKey.toByteArray().let { bytes ->
+                    val md = java.security.MessageDigest.getInstance("SHA-256")
+                    md.digest(bytes).joinToString("") { "%02x".format(it) }.take(40)
+                }
 
                 val payload = hashMapOf(
-                    "id" to notification.id,
-                    "deviceId" to notification.deviceId,
-                    "type" to notification.type,
-                    "title" to notification.title,
-                    "body" to notification.body,
-                    "contactName" to notification.contactName,
-                    "contactNumber" to notification.contactNumber,
-                    "isRead" to notification.isRead,
-                    "priority" to notification.priority,
+                    "id" to docId,
+                    "deviceId" to deviceId,
+                    "type" to type,
+                    "title" to title,
+                    "body" to body,
+                    "contactName" to contactName,
+                    "contactNumber" to contactNumber,
+                    "isRead" to false,
+                    "priority" to priority,
                     "timestamp" to FieldValue.serverTimestamp()
                 )
 
+                // Using set() with deterministic docId — if document already exists (e.g. after
+                // web app cleared and mobile re-pushes same event), it simply overwrites cleanly.
                 db.collection("devices")
                     .document(deviceId)
                     .collection("notifications")
-                    .document(notification.id)
+                    .document(docId)
                     .set(payload)
 
-                Log.i(TAG, "Pushed notification to Firestore: $type - $title")
+                Log.i(TAG, "Pushed notification to Firestore: $type - $title [docId=$docId]")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to push notification: ${e.message}", e)
             }

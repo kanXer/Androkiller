@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Header from './components/Header';
 import DashboardView from './components/DashboardView';
+import ErrorBoundary from './components/ErrorBoundary';
 import WaitingForDevice from './components/WaitingForDevice';
 import FirebaseSetupModal from './components/FirebaseSetupModal';
 import StorageSettingsModal from './components/StorageSettingsModal';
@@ -22,7 +23,8 @@ import {
   deleteDevice,
   deleteNotification,
   clearAllNotifications,
-  markNotificationRead
+  markNotificationRead,
+  triggerSendTestNotification
 } from './services/trackerService';
 
 // Web Audio API Synthesizer Notification Sound
@@ -358,68 +360,95 @@ export default function App() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-6 lg:p-8 relative z-10 pb-20 sm:pb-8">
         {activeDevice ? (
-          <DashboardView
-            currentDevice={activeDevice}
-            locations={locations}
-            logs={logs}
-            media={media}
-            messages={messages}
-            files={files}
-            callLogs={callLogs}
-            smsLogs={smsLogs}
-            notifications={notifications}
-            installedAppsData={installedAppsData}
-            onDeleteNotification={async (id) => {
-              // Suppress Firestore listener briefly so deleted item doesn't bounce back
-              suppressNotifUpdatesRef.current = true;
-              setNotifications(prev => prev.filter(n => n.id !== id));
-              if (activeDeviceId !== 'dev_preview_nexus') {
-                try {
-                  await deleteNotification(activeDeviceId, id);
-                } catch (err) {
-                  console.error('Failed to delete notification from Firestore:', err);
-                  addToast('Delete Notice', 'Removed from view (server sync queued)', 'info');
+          <ErrorBoundary>
+            <DashboardView
+              currentDevice={activeDevice}
+              locations={locations}
+              logs={logs}
+              media={media}
+              messages={messages}
+              files={files}
+              callLogs={callLogs}
+              smsLogs={smsLogs}
+              notifications={notifications}
+              installedAppsData={installedAppsData}
+              onDeleteNotification={async (id) => {
+                // Suppress Firestore listener briefly so deleted item doesn't bounce back
+                suppressNotifUpdatesRef.current = true;
+                setNotifications(prev => prev.filter(n => n.id !== id));
+                if (activeDeviceId !== 'dev_preview_nexus') {
+                  try {
+                    await deleteNotification(activeDeviceId, id);
+                  } catch (err) {
+                    console.error('Failed to delete notification from Firestore:', err);
+                    addToast('Delete Notice', 'Removed from view (server sync queued)', 'info');
+                  }
                 }
-              }
-              // Re-enable listener after 3 seconds (enough time for Firestore to confirm delete)
-              setTimeout(() => { suppressNotifUpdatesRef.current = false; }, 3000);
-            }}
-            onClearNotifications={async () => {
-              // Suppress Firestore listener during and after clear to prevent bounce-back
-              suppressNotifUpdatesRef.current = true;
-              setNotifications([]);
-              if (activeDeviceId !== 'dev_preview_nexus') {
-                try {
-                  await clearAllNotifications(activeDeviceId);
-                } catch (err) {
-                  console.error('Failed to clear notifications from Firestore:', err);
-                  addToast('Clear Notice', 'Cleared from view (server sync queued)', 'info');
+                // Re-enable listener after 3 seconds (enough time for Firestore to confirm delete)
+                setTimeout(() => { suppressNotifUpdatesRef.current = false; }, 3000);
+              }}
+              onClearNotifications={async () => {
+                // Suppress Firestore listener during and after clear to prevent bounce-back
+                suppressNotifUpdatesRef.current = true;
+                setNotifications([]);
+                if (activeDeviceId !== 'dev_preview_nexus') {
+                  try {
+                    await clearAllNotifications(activeDeviceId);
+                  } catch (err) {
+                    console.error('Failed to clear notifications from Firestore:', err);
+                    addToast('Clear Notice', 'Cleared from view (server sync queued)', 'info');
+                  }
                 }
-              }
-              // Re-enable listener after 5 seconds — gives Firestore time to propagate deletes
-              setTimeout(() => { suppressNotifUpdatesRef.current = false; }, 5000);
-            }}
+                // Re-enable listener after 5 seconds — gives Firestore time to propagate deletes
+                setTimeout(() => { suppressNotifUpdatesRef.current = false; }, 5000);
+              }}
 
-            onMarkNotificationRead={async (id) => {
-              setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
-              if (activeDeviceId !== 'dev_preview_nexus') {
-                try {
-                  await markNotificationRead(activeDeviceId, id);
-                } catch (err) {
-                  console.error('Failed to mark notification read:', err);
+              onSendTestNotification={async () => {
+                if (activeDeviceId !== 'dev_preview_nexus') {
+                  try {
+                    await triggerSendTestNotification(activeDeviceId);
+                    addToast('Test Alert Dispatched', 'Real-time test alert sent to device', 'info');
+                  } catch (err) {
+                    addToast('Dispatch Error', err?.message || 'Failed to send test command', 'error');
+                  }
+                } else {
+                  // Simulate in demo mode
+                  const demoNotif = {
+                    id: 'demo_' + Date.now(),
+                    type: 'SYSTEM_ALERT',
+                    title: 'Real-Time Test Alert',
+                    body: 'Live test notification generated at ' + new Date().toLocaleTimeString(),
+                    priority: 'HIGH',
+                    timestamp: new Date(),
+                    createdAt: Date.now(),
+                    isRead: false
+                  };
+                  setNotifications(prev => [demoNotif, ...prev]);
+                  addToast('Demo Alert', 'Generated simulated live alert', 'info');
                 }
-              }
-            }}
-            onRequestDeleteDevice={(dev) => {
-              if ((dev?.deviceId || dev?.id) === 'dev_preview_nexus') {
-                setSimulatedDevice(null);
-                setSelectedDeviceId(null);
-                addToast('Simulated Device Removed', 'Demo connection closed', 'info');
-              } else {
-                setDeviceToDelete(dev);
-              }
-            }}
-          />
+              }}
+
+              onMarkNotificationRead={async (id) => {
+                setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+                if (activeDeviceId !== 'dev_preview_nexus') {
+                  try {
+                    await markNotificationRead(activeDeviceId, id);
+                  } catch (err) {
+                    console.error('Failed to mark notification read:', err);
+                  }
+                }
+              }}
+              onRequestDeleteDevice={(dev) => {
+                if ((dev?.deviceId || dev?.id) === 'dev_preview_nexus') {
+                  setSimulatedDevice(null);
+                  setSelectedDeviceId(null);
+                  addToast('Simulated Device Removed', 'Demo connection closed', 'info');
+                } else {
+                  setDeviceToDelete(dev);
+                }
+              }}
+            />
+          </ErrorBoundary>
         ) : (
           <WaitingForDevice
             onOpenSetupModal={() => setIsSetupModalOpen(true)}

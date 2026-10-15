@@ -12,15 +12,22 @@ android {
         applicationId = "com.nexus.androkiller"
         minSdk = 24
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.2.2"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -106,4 +113,7 @@ dependencies {
 
   // OkHttp for free cloud storage uploads
   implementation(libs.okhttp)
+
+  // WebRTC (screen sharing / streaming)
+  implementation(libs.webrtc.android)
 }

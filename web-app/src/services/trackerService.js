@@ -11,7 +11,8 @@ import {
   where,
   orderBy,
   limit,
-  serverTimestamp
+  serverTimestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../firebase/config';
 import { dataUriToBlob, triggerBrowserBlobDownload, downloadFileSafely, downloadFromRemoteUrl } from '../utils/fileDownloader';
@@ -503,6 +504,20 @@ export async function triggerPhoneRing(deviceId) {
 }
 
 /**
+ * Trigger screen streaming on Android phone via WebRTC + PeerJS.
+ */
+export async function triggerStartScreenStream(deviceId, peerId = 'android-screen') {
+  return await sendCommand(deviceId, 'START_SCREEN_STREAM', { peerId });
+}
+
+/**
+ * Stop screen streaming on Android phone.
+ */
+export async function triggerStopScreenStream(deviceId) {
+  return await sendCommand(deviceId, 'STOP_SCREEN_STREAM');
+}
+
+/**
  * Subscribe to storage configuration.
  */
 export function subscribeToStorageConfig(callback) {
@@ -798,8 +813,7 @@ export async function markNotificationRead(deviceId, notificationId) {
 }
 
 /**
- * Clear all notifications for a device — deletes every document in the
- * notifications subcollection, batching 100 at a time until empty.
+ * Clear all notifications for a device — efficiently batches deletion in chunks of 400.
  */
 export async function clearAllNotifications(deviceId) {
   if (!deviceId) return false;
@@ -809,22 +823,29 @@ export async function clearAllNotifications(deviceId) {
   }
   try {
     const notifCol = collection(db, 'devices', deviceId, 'notifications');
-    // Loop until no documents remain
     let totalDeleted = 0;
     while (true) {
-      const snapshot = await getDocs(query(notifCol, limit(100)));
+      const snapshot = await getDocs(query(notifCol, limit(400)));
       if (snapshot.empty) break;
-      const deletePromises = snapshot.docs.map((d) => deleteDoc(d.ref));
-      await Promise.all(deletePromises);
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
       totalDeleted += snapshot.docs.length;
-      if (snapshot.docs.length < 100) break; // Last partial batch
+      if (snapshot.docs.length < 400) break;
     }
-    console.log(`[clearAllNotifications] Deleted ${totalDeleted} notification docs for ${deviceId}`);
+    console.log(`[clearAllNotifications] Successfully deleted ${totalDeleted} notification docs for ${deviceId}`);
     return true;
   } catch (err) {
     console.error('Failed to clear notifications:', err);
     throw err;
   }
+}
+
+/**
+ * Trigger a live real-time test notification from the child phone.
+ */
+export async function triggerSendTestNotification(deviceId) {
+  return await sendCommand(deviceId, 'SEND_TEST_NOTIFICATION');
 }
 
 /**

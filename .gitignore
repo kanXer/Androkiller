@@ -50,3 +50,5 @@ firebase-debug.*.log
 firestore-debug.log
 ui-debug.log
 prompt.txt
+graphify-out/
+*serviceAccountKey*.json

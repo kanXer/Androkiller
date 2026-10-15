@@ -372,6 +372,69 @@ fun MainScreen(
                 }
             }
 
+            // Live Screen Stream Broadcast Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF142436)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.3f))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Live Screen Broadcast (WebRTC)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = Color.White
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Broadcasts your real-time phone screen to the web dashboard via PeerJS WebRTC.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF90CAF9)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    val devId = com.nexus.androkiller.tracker.DeviceStatusProvider(context).getDeviceId()
+                                    com.nexus.androkiller.service.ScreenCaptureConsentActivity.launch(context, "screen_$devId")
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF00E5FF),
+                                    contentColor = Color.Black
+                                )
+                            ) {
+                                Text("Start Stream", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    com.nexus.androkiller.service.ScreenCaptureService.stop(context)
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252))
+                            ) {
+                                Text("Stop Stream", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Live Status Card
             item {
                 Surface(

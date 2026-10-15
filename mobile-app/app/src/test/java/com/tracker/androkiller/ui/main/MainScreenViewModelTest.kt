@@ -1,27 +1,16 @@
 package com.nexus.androkiller.ui.main
 
-import com.nexus.androkiller.data.DataRepository
 import junit.framework.TestCase.assertEquals
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
+import junit.framework.TestCase.assertFalse
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class MainScreenViewModelTest {
   @Test
-  fun uiState_initiallyLoading() = runTest {
-    val viewModel = MainScreenViewModel(FakeMyModelRepository())
-    assertEquals(viewModel.uiState.first(), MainScreenUiState.Loading)
+  fun uiState_initialState_isReady() = runTest {
+    val viewModel = MainScreenViewModel()
+    assertFalse(viewModel.uiState.value.isServiceRunning)
+    assertEquals("Ready", viewModel.uiState.value.statusMessage)
+    assertEquals(15L, viewModel.uiState.value.intervalSeconds)
   }
-
-  @Test
-  fun uiState_onItemSaved_isDisplayed() = runTest {
-    val viewModel = MainScreenViewModel(FakeMyModelRepository())
-    assertEquals(viewModel.uiState.first(), MainScreenUiState.Loading)
-  }
-}
-
-private class FakeMyModelRepository : DataRepository {
-  override val data: Flow<List<String>> = flow { emit(listOf("Sample")) }
 }

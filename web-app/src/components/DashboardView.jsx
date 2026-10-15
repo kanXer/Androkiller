@@ -17,13 +17,16 @@ import {
   Bell,
   ShieldAlert,
   Trash2,
-  CheckCircle2
+  CheckCircle2,
+  Zap,
+  Clock
 } from 'lucide-react';
 import OverviewDashboard from './OverviewDashboard';
 import GpsMap from './GpsMap';
 import TelemetryChart from './TelemetryChart';
 import ControlPanel from './ControlPanel';
 import MediaViewer from './MediaViewer';
+import LiveScreenStream from './LiveScreenStream';
 import FamilyCommunication from './FamilyCommunication';
 import DeviceFileExplorer from './DeviceFileExplorer';
 import CallSmsExplorer from './CallSmsExplorer';
@@ -43,9 +46,12 @@ export default function DashboardView({
   onRequestDeleteDevice,
   onDeleteNotification,
   onClearNotifications,
-  onMarkNotificationRead
+  onMarkNotificationRead,
+  onSendTestNotification
 }) {
   const [activeTab, setActiveTab] = useState('OVERVIEW'); // OVERVIEW, CALLS, MAP, APPS, FILES, MEDIA, CHAT, CONTROLS
+  const [notifFilter, setNotifFilter] = useState('latest'); // 'latest' | 'all'
+  const [isSendingTest, setIsSendingTest] = useState(false);
 
   // Automatically scroll to the top whenever active tab changes
   useEffect(() => {
@@ -84,14 +90,36 @@ export default function DashboardView({
     freeRamGB: 3.4
   };
 
+  const getTimestampMs = (n) => {
+    if (n.createdAt && typeof n.createdAt === 'number') return n.createdAt;
+    if (n.timestamp?.toMillis) return n.timestamp.toMillis();
+    if (n.timestamp?.seconds) return n.timestamp.seconds * 1000;
+    if (typeof n.timestamp === 'number') return n.timestamp;
+    if (n.timestamp) {
+      const d = new Date(n.timestamp).getTime();
+      if (!isNaN(d)) return d;
+    }
+    return 0;
+  };
+
+  const allSortedNotifications = [...notifications].sort((a, b) => getTimestampMs(b) - getTimestampMs(a));
+  const recentWindowMs = 24 * 60 * 60 * 1000;
+  const recentNotifs = allSortedNotifications.filter(n => {
+    const ms = getTimestampMs(n);
+    return !ms || (Date.now() - ms) <= recentWindowMs;
+  });
+  const recentCount = recentNotifs.length;
+  const displayedNotifications = notifFilter === 'latest' ? recentNotifs : allSortedNotifications;
+
   const navTabs = [
     { id: 'OVERVIEW', label: 'All Feeds', icon: LayoutDashboard },
     { id: 'CALLS', label: `Calls & SMS (${callLogs.length})`, icon: PhoneCall },
-    { id: 'NOTIFICATIONS', label: `Notifications (${notifications.length})`, icon: Bell },
+    { id: 'NOTIFICATIONS', label: `Notifications (${recentCount})`, icon: Bell },
     { id: 'MAP', label: 'GPS Tracker', icon: MapPin },
     { id: 'APPS', label: `Apps (${installedAppsData?.totalCount || (installedAppsData?.apps?.length || 0)})`, icon: AppWindow },
     { id: 'FILES', label: `Files (${files.length})`, icon: HardDrive },
     { id: 'MEDIA', label: `Media Vault (${media.length})`, icon: ImageIcon },
+    { id: 'SCREEN', label: 'Live Screen', icon: Smartphone },
     { id: 'CHAT', label: `Live Chat (${messages.length})`, icon: MessageSquare },
     { id: 'CONTROLS', label: 'Controls', icon: Sliders }
   ];
@@ -174,9 +202,9 @@ export default function DashboardView({
                 </div>
                 <div>
                   <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                    <span>All Notifications</span>
-                    <span className="text-[10px] font-mono bg-amber-950 text-amber-300 px-2 py-0.5 rounded border border-amber-800/40">
-                      Live Sync
+                    <span>Notifications & Alerts</span>
+                    <span className="text-[10px] font-mono bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800/40 animate-pulse">
+                      Live
                     </span>
                   </h2>
                   <p className="text-[11px] sm:text-xs text-slate-400">
@@ -184,28 +212,109 @@ export default function DashboardView({
                   </p>
                 </div>
               </div>
-              {notifications.length > 0 && (
+
+              {/* Action Toolbar */}
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1.5 self-end sm:self-auto">
+                {/* Filter Switcher */}
+                <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+                  <button
+                    onClick={() => setNotifFilter('latest')}
+                    className={`px-2.5 py-1 rounded-lg font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                      notifFilter === 'latest'
+                        ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Zap className="w-3 h-3" />
+                    <span>Latest / 24h ({recentCount})</span>
+                  </button>
+                  <button
+                    onClick={() => setNotifFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                      notifFilter === 'all'
+                        ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>All ({notifications.length})</span>
+                  </button>
+                </div>
+
+                {/* Send Test Alert Button */}
                 <button
+                  disabled={isSendingTest}
                   onClick={async (e) => {
                     e.stopPropagation();
-                    await onClearNotifications?.();
+                    setIsSendingTest(true);
+                    try {
+                      await onSendTestNotification?.();
+                    } finally {
+                      setTimeout(() => setIsSendingTest(false), 2000);
+                    }
                   }}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 hover:border-rose-700 text-rose-300 hover:text-white transition-all shadow-sm shrink-0 self-end sm:self-auto active:scale-95 cursor-pointer"
-                  title="Clear all notifications"
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-800/50 hover:border-cyan-600 text-cyan-300 hover:text-white transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                  title="Dispatch real-time test notification from device"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Clear All</span>
+                  <Zap className={`w-3.5 h-3.5 text-cyan-400 ${isSendingTest ? 'animate-spin' : ''}`} />
+                  <span>{isSendingTest ? 'Triggering...' : 'Test Alert'}</span>
                 </button>
-              )}
+
+                {/* Clear All Button */}
+                {notifications.length > 0 && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (window.confirm('Are you sure you want to clear all notifications?')) {
+                        await onClearNotifications?.();
+                      }
+                    }}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 hover:border-rose-700 text-rose-300 hover:text-white transition-all shadow-xs shrink-0 active:scale-95 cursor-pointer"
+                    title="Clear all notifications"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Clear All</span>
+                  </button>
+                )}
+              </div>
             </div>
 
-            {notifications.length === 0 ? (
-              <div className="text-center py-12 bg-slate-950/40 rounded-xl border border-slate-800/80 text-xs text-slate-500">
-                No notifications synced yet. Notifications appear here in real-time when calls, SMS, or guardian messages arrive.
+            {displayedNotifications.length === 0 ? (
+              <div className="text-center py-12 bg-slate-950/40 rounded-xl border border-slate-800/80 p-6 space-y-3">
+                <div className="w-10 h-10 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mx-auto">
+                  <Bell className="w-5 h-5 text-slate-400" />
+                </div>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  {notifFilter === 'latest' && notifications.length > 0
+                    ? `No notifications in the last 24 hours. (You have ${notifications.length} older notifications in "All").`
+                    : 'No notifications synced yet. New calls, SMS, and device events will appear here instantly.'}
+                </p>
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  {notifFilter === 'latest' && notifications.length > 0 && (
+                    <button
+                      onClick={() => setNotifFilter('all')}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-all cursor-pointer"
+                    >
+                      View All ({notifications.length})
+                    </button>
+                  )}
+                  <button
+                    onClick={async () => {
+                      setIsSendingTest(true);
+                      try {
+                        await onSendTestNotification?.();
+                      } finally {
+                        setTimeout(() => setIsSendingTest(false), 2000);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-black transition-all cursor-pointer"
+                  >
+                    Send Test Alert
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-2">
-                {notifications.map((notif, idx) => {
+                {displayedNotifications.map((notif, idx) => {
                   const isUnread = !notif.isRead;
                   const getPriorityColor = () => {
                     switch (notif.priority) {
@@ -227,10 +336,18 @@ export default function DashboardView({
                     }
                   };
 
-                  const formatTime = (ts) => {
-                    if (!ts) return 'Just now';
+                  const formatTime = (ts, createdAt) => {
+                    const ms = createdAt || (ts?.toMillis ? ts.toMillis() : (ts?.seconds ? ts.seconds * 1000 : (typeof ts === 'number' ? ts : (ts ? new Date(ts).getTime() : 0))));
+                    if (!ms) return 'Just now';
+                    const diff = Date.now() - ms;
+                    if (diff < 45000) return 'Just now';
+                    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
                     try {
-                      const date = typeof ts === 'number' ? new Date(ts) : (ts.toDate ? ts.toDate() : new Date(ts));
+                      const date = new Date(ms);
+                      const isToday = new Date().toDateString() === date.toDateString();
+                      if (isToday) {
+                        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      }
                       return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                     } catch (_) { return 'Just now'; }
                   };
@@ -247,7 +364,9 @@ export default function DashboardView({
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <h4 className="font-bold text-white text-sm truncate">{notif.title}</h4>
-                            <span className="text-[10px] font-mono text-slate-400 shrink-0 ml-2">{formatTime(notif.timestamp)}</span>
+                            <span className="text-[10px] font-mono text-slate-400 shrink-0 ml-2">
+                              {formatTime(notif.timestamp, notif.createdAt)}
+                            </span>
                           </div>
                           <p className="text-slate-300 text-xs mt-0.5 line-clamp-2">{notif.body}</p>
                           {(notif.contactName || notif.contactNumber) && (
@@ -371,6 +490,13 @@ export default function DashboardView({
           />
         )}
 
+        {/* 7. Live Screen Stream Page */}
+        {activeTab === 'SCREEN' && (
+          <LiveScreenStream
+            deviceId={deviceId}
+          />
+        )}
+
         {/* 7. Family Communication & Live Chat Page */}
         {activeTab === 'CHAT' && (
           <FamilyCommunication
@@ -421,7 +547,7 @@ export default function DashboardView({
         {[
           { id: 'OVERVIEW', label: 'Feeds', icon: LayoutDashboard },
           { id: 'CALLS', label: 'Calls', icon: PhoneCall, count: callLogs.length },
-          { id: 'NOTIFICATIONS', label: 'Alerts', icon: Bell, count: notifications.length },
+          { id: 'NOTIFICATIONS', label: 'Alerts', icon: Bell, count: recentCount },
           { id: 'MAP', label: 'GPS', icon: MapPin },
           { id: 'FILES', label: 'Files', icon: HardDrive, count: files.length },
           { id: 'MEDIA', label: 'Vault', icon: ImageIcon, count: media.length },

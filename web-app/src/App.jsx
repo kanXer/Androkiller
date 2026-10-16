@@ -78,15 +78,30 @@ export default function App() {
   const [deviceToDelete, setDeviceToDelete] = useState(null);
   const [isDeletingDevice, setIsDeletingDevice] = useState(false);
 
-  const isInitialLoad = useRef(true);
-  const knownDeviceIdsRef = useRef(new Set());
+  const isInitialDevicesLoadedRef = useRef(false);
+  const knownDeviceStatusRef = useRef(new Map()); // id -> { name, isConnected, lastStatusChange }
+  const lastToastMapRef = useRef(new Map());
+  const lastChimeTimeRef = useRef(0);
   // When true, temporarily ignore Firestore notification updates (during delete/clear ops)
   const suppressNotifUpdatesRef = useRef(false);
 
+  // Helper to add real-time notification toast with audio chime and deduplication
+  const addToast = (title, message, iconType = 'info', forceChime = false) => {
+    const key = `${title}::${message}`;
+    const now = Date.now();
+    // Suppress duplicate toasts with identical title & message within 15 seconds
+    const lastTime = lastToastMapRef.current.get(key) || 0;
+    if (now - lastTime < 15000) {
+      return;
+    }
+    lastToastMapRef.current.set(key, now);
 
-  // Helper to add real-time notification toast with audio chime
-  const addToast = (title, message, iconType = 'info') => {
-    playNotificationChime();
+    // Rate-limit audio chime to at most once every 3.5 seconds so user isn't bombarded with sound
+    if (now - lastChimeTimeRef.current > 3500 || forceChime) {
+      playNotificationChime();
+      lastChimeTimeRef.current = now;
+    }
+
     const id = Date.now() + Math.random();
     setActiveToasts(prev => [
       { id, title, message, iconType, time: new Date().toLocaleTimeString() },
@@ -178,25 +193,57 @@ export default function App() {
   // 1. Subscribe to active Android devices in real-time
   useEffect(() => {
     const unsubscribeDevices = subscribeToDevices((activeDevs) => {
+      const now = Date.now();
       const currentIds = new Set(activeDevs.map(d => d.deviceId || d.id));
 
-      // Alert when a new Android device establishes connection
+      // On initial snapshot, quietly record known devices without blasting toasts or sound
+      if (!isInitialDevicesLoadedRef.current) {
+        isInitialDevicesLoadedRef.current = true;
+        activeDevs.forEach(d => {
+          const id = d.deviceId || d.id;
+          knownDeviceStatusRef.current.set(id, {
+            name: d.deviceName || id,
+            isConnected: d.isConnected ?? true,
+            lastStatusChange: now
+          });
+        });
+        setDevices(activeDevs);
+        return;
+      }
+
+      // Check for genuine new devices or established status changes
       activeDevs.forEach(d => {
         const id = d.deviceId || d.id;
-        if (!knownDeviceIdsRef.current.has(id)) {
-          const name = d.deviceName || id;
-          addToast('🟢 Android Connected', `${name} is now online & connected!`, 'info');
+        const name = d.deviceName || id;
+        const isConnected = d.isConnected ?? true;
+        const prev = knownDeviceStatusRef.current.get(id);
+
+        if (!prev) {
+          // Brand new device paired / connected after page load
+          knownDeviceStatusRef.current.set(id, { name, isConnected, lastStatusChange: now });
+          if (isConnected) {
+            addToast('🟢 Android Connected', `${name} is now online & connected!`, 'info');
+          }
+        } else if (prev.isConnected !== isConnected) {
+          // Status change: require at least 30s stability to avoid flapping on minor heartbeat delays
+          if (now - prev.lastStatusChange > 30000) {
+            if (isConnected) {
+              addToast('🟢 Android Online', `${name} reconnected`, 'info');
+            } else {
+              addToast('⚪ Device Standby', `${name} connection standby`, 'info');
+            }
+            knownDeviceStatusRef.current.set(id, { name, isConnected, lastStatusChange: now });
+          }
         }
       });
 
-      // Alert when an Android device disconnects / closes
-      knownDeviceIdsRef.current.forEach(id => {
+      // Cleanup removed devices from map
+      for (const [id] of knownDeviceStatusRef.current.entries()) {
         if (!currentIds.has(id)) {
-          addToast('⚪ Connection Closed', `Device ${id} disconnected`, 'info');
+          knownDeviceStatusRef.current.delete(id);
         }
-      });
+      }
 
-      knownDeviceIdsRef.current = currentIds;
       setDevices(activeDevs);
 
       // Auto-update selected device
@@ -254,11 +301,7 @@ export default function App() {
 
     const unsubLogs = subscribeToDeviceLogs(activeDeviceId, (newLogs) => {
       setLogs(newLogs);
-      if (!isInitialLoad.current && newLogs.length > 0) {
-        const topLog = newLogs[0];
-        addToast(topLog.eventType || 'Device Alert', topLog.message || 'System status update', 'info');
-      }
-      isInitialLoad.current = false;
+      // Diagnostic telemetry logs belong in the Diagnostics card, not toasted as intrusive popups.
     });
 
     const unsubMedia = subscribeToDeviceMedia(activeDeviceId, setMedia);

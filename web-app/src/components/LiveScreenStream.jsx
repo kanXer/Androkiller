@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Smartphone, Play, Square, RefreshCw, AlertCircle, ShieldAlert } from 'lucide-react';
+import { Smartphone, Play, Square, RefreshCw, AlertCircle, ShieldAlert, Maximize2, Minimize2 } from 'lucide-react';
 import { triggerStartScreenStream, triggerStopScreenStream } from '../services/trackerService';
 
 /**
  * Live screen stream viewer using PeerJS.
  * Connects to the Android peer (android-screen) and displays the video stream.
  * Allows remote start/stop request dispatch to the companion app.
+ * Supports Full Screen Mode with custom HUD overlay and cross-browser Fullscreen API.
  */
 export default function LiveScreenStream({ deviceId }) {
   const [peerId, setPeerId] = useState('');
@@ -13,6 +14,9 @@ export default function LiveScreenStream({ deviceId }) {
   const [isCalling, setIsCalling] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMsg, setActionMsg] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const containerRef = useRef(null);
   const videoRef = useRef(null);
   const peerRef = useRef(null);
   const callRef = useRef(null);
@@ -23,6 +27,83 @@ export default function LiveScreenStream({ deviceId }) {
     const targetPeer = params.get('peerId') || (deviceId ? `screen_${deviceId}` : 'android-screen');
     setPeerId(targetPeer);
   }, [deviceId]);
+
+  // Cross-browser Full Screen toggle (HTML5 Fullscreen API + Fallback CSS state)
+  const toggleFullscreen = () => {
+    const doc = document;
+    const isCurrentlyFullscreen = Boolean(
+      doc.fullscreenElement ||
+      doc.webkitFullscreenElement ||
+      doc.mozFullScreenElement ||
+      doc.msFullscreenElement
+    );
+
+    const targetEl = containerRef.current;
+    if (!targetEl) return;
+
+    if (!isCurrentlyFullscreen && !isFullscreen) {
+      if (targetEl.requestFullscreen) {
+        targetEl.requestFullscreen().catch(() => setIsFullscreen(true));
+      } else if (targetEl.webkitRequestFullscreen) {
+        targetEl.webkitRequestFullscreen();
+      } else if (targetEl.mozRequestFullScreen) {
+        targetEl.mozRequestFullScreen();
+      } else if (targetEl.msRequestFullscreen) {
+        targetEl.msRequestFullscreen();
+      } else {
+        setIsFullscreen(true);
+      }
+    } else {
+      if (doc.exitFullscreen) {
+        doc.exitFullscreen().catch(() => {});
+      } else if (doc.webkitExitFullscreen) {
+        doc.webkitExitFullscreen();
+      } else if (doc.mozCancelFullScreen) {
+        doc.mozCancelFullScreen();
+      } else if (doc.msExitFullscreen) {
+        doc.msExitFullscreen();
+      }
+      setIsFullscreen(false);
+    }
+  };
+
+  // Sync fullscreen change events & handle Escape / F shortcut keys
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFs = Boolean(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement
+      );
+      setIsFullscreen(isFs);
+    };
+
+    const handleKeyDown = (e) => {
+      if ((e.key === 'f' || e.key === 'F') && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+        toggleFullscreen();
+      } else if (e.key === 'Escape' && isFullscreen) {
+        if (document.fullscreenElement) {
+          try { document.exitFullscreen(); } catch (_) {}
+        }
+        setIsFullscreen(false);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isFullscreen]);
 
   const connectToPeer = () => {
     if (!peerId) return;
@@ -143,7 +224,7 @@ export default function LiveScreenStream({ deviceId }) {
       setActionMsg('Sending START_SCREEN_STREAM command to phone...');
       await triggerStartScreenStream(deviceId, peerId);
       setActionMsg('Command dispatched! Phone will prompt screen capture permission.');
-      // Auto-retry connection after 3 seconds
+      // Auto-retry connection after 3.5 seconds
       setTimeout(() => {
         connectToPeer();
         setActionLoading(false);
@@ -172,9 +253,22 @@ export default function LiveScreenStream({ deviceId }) {
   const isLive = status === 'Live screen streaming';
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-slate-800 gap-3">
+    <div
+      ref={containerRef}
+      className={
+        isFullscreen
+          ? 'fixed inset-0 z-50 bg-black flex flex-col justify-between w-screen h-screen overflow-hidden'
+          : 'bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4'
+      }
+    >
+      {/* Top Header (Standard or Fullscreen HUD) */}
+      <div
+        className={
+          isFullscreen
+            ? 'p-4 sm:p-6 bg-gradient-to-b from-black/95 via-black/70 to-transparent flex items-center justify-between z-30'
+            : 'flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-slate-800 gap-3'
+        }
+      >
         <div className="flex items-center space-x-2.5">
           <div className="p-2 rounded-xl bg-cyan-950/60 border border-cyan-800/40 text-cyan-400">
             <Smartphone className="w-5 h-5" />
@@ -182,7 +276,13 @@ export default function LiveScreenStream({ deviceId }) {
           <div>
             <div className="flex items-center space-x-2">
               <h3 className="text-base font-bold text-white">Live Screen Stream</h3>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${isLive ? 'bg-emerald-950 border border-emerald-600/60 text-emerald-300 animate-pulse' : 'bg-slate-800 border border-slate-700 text-slate-400'}`}>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                  isLive
+                    ? 'bg-emerald-950 border border-emerald-600/60 text-emerald-300 animate-pulse'
+                    : 'bg-slate-800 border border-slate-700 text-slate-400'
+                }`}
+              >
                 {isLive ? 'LIVE' : 'STANDBY'}
               </span>
             </div>
@@ -222,24 +322,63 @@ export default function LiveScreenStream({ deviceId }) {
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Reconnect</span>
           </button>
+
+          {/* Full Screen Toggle Button */}
+          <button
+            onClick={toggleFullscreen}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shadow-sm active:scale-95 cursor-pointer ${
+              isFullscreen
+                ? 'bg-red-600/80 hover:bg-red-500 text-white'
+                : 'bg-indigo-950/70 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 hover:text-white'
+            }`}
+            title={isFullscreen ? 'Exit Full Screen (Esc)' : 'Enter Full Screen View (F)'}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            <span>{isFullscreen ? 'Exit Full Screen' : 'Full Screen'}</span>
+          </button>
         </div>
       </div>
 
       {actionMsg && (
-        <div className="p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-800/40 text-cyan-300 text-xs flex items-center justify-between">
+        <div className={`p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-800/40 text-cyan-300 text-xs flex items-center justify-between ${isFullscreen ? 'mx-6' : ''}`}>
           <span>{actionMsg}</span>
-          <button onClick={() => setActionMsg(null)} className="text-cyan-500 hover:text-white text-xs ml-2">✕</button>
+          <button onClick={() => setActionMsg(null)} className="text-cyan-500 hover:text-white text-xs ml-2 cursor-pointer">✕</button>
         </div>
       )}
 
       {/* Video Container */}
-      <div className="relative flex flex-col items-center justify-center bg-black/80 rounded-2xl border border-slate-800 overflow-hidden min-h-[360px] sm:min-h-[460px]">
+      <div
+        className={
+          isFullscreen
+            ? 'flex-1 relative flex flex-col items-center justify-center bg-black overflow-hidden w-full h-full'
+            : 'relative flex flex-col items-center justify-center bg-black/80 rounded-2xl border border-slate-800 overflow-hidden min-h-[360px] sm:min-h-[460px]'
+        }
+      >
+        {/* Floating Quick Fullscreen Corner Button */}
+        {!isFullscreen && (
+          <div className="absolute top-3 right-3 z-20">
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-cyan-400 hover:text-white backdrop-blur-md transition-all shadow-lg cursor-pointer active:scale-95"
+              title="Full Screen View"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className="w-full max-w-3xl max-h-[70vh] object-contain"
+          onDoubleClick={toggleFullscreen}
+          className={
+            isFullscreen
+              ? 'w-full h-full max-h-[85vh] object-contain cursor-pointer'
+              : 'w-full max-w-3xl max-h-[70vh] object-contain cursor-pointer'
+          }
+          title="Double-click to toggle Full Screen"
         />
 
         {!isLive && (
@@ -265,12 +404,25 @@ export default function LiveScreenStream({ deviceId }) {
       </div>
 
       {/* Status Bar */}
-      <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs flex items-center justify-between">
+      <div
+        className={
+          isFullscreen
+            ? 'p-3 sm:p-4 bg-gradient-to-t from-black/95 via-black/70 to-transparent text-xs flex items-center justify-between z-30'
+            : 'p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs flex items-center justify-between'
+        }
+      >
         <div className="flex items-center space-x-2 truncate">
           <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isLive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
           <span className="text-slate-300 truncate">{status}</span>
         </div>
-        <span className="text-[10px] font-mono text-slate-500 shrink-0 ml-2">PeerJS WebRTC</span>
+        <div className="flex items-center space-x-3 shrink-0 ml-2">
+          {isFullscreen && (
+            <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+              Double-click or press ESC to exit
+            </span>
+          )}
+          <span className="text-[10px] font-mono text-slate-500">PeerJS WebRTC</span>
+        </div>
       </div>
     </div>
   );

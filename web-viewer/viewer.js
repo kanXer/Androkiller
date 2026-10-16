@@ -97,8 +97,29 @@ function callPhone() {
   }
 }
 
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+const videoWrapper = document.querySelector('.video-wrapper');
+
+function toggleFullscreen() {
+  const target = videoWrapper || video;
+  if (!document.fullscreenElement) {
+    if (target.requestFullscreen) target.requestFullscreen().catch(() => {});
+    else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
+  } else {
+    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  }
+}
+
 if (reconnectBtn) {
   reconnectBtn.addEventListener('click', connect);
+}
+
+if (fullscreenBtn) {
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+}
+
+if (video) {
+  video.addEventListener('dblclick', toggleFullscreen);
 }
 
 // Start connection on load

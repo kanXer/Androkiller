@@ -63,8 +63,8 @@ Androkiller/
 ## 📦 Download Pre-built APK
 
 You can download the ready-to-install Android APK directly from the **[GitHub Releases](https://github.com/kanXer/Androkiller/releases)** section:
-- **[`AndroKiller-v1.2.2-release.apk`](https://github.com/kanXer/Androkiller/releases/download/v1.2.2/AndroKiller-v1.2.2-release.apk)** *(Recommended)*: Latest Production build with **Debug Mode OFF**, WebRTC Live Screen streaming, Web Dashboard Fullscreen viewer, resilient notification deduplication, optimized and signed for Android 15 / API 35.
-- **[`AndroKiller-v1.2.0-release.apk`](https://github.com/kanXer/Androkiller/releases/download/v1.0.0/AndroKiller-v1.2.0-release.apk)**: Previous stable build.
+- **[`AndroKiller-v1.2.3-release.apk`](https://github.com/kanXer/Androkiller/releases/download/v1.2.3/AndroKiller-v1.2.3-release.apk)** *(Recommended)*: Production Release APK signed with official release key (`CN=Nexus AndroKiller`), V2 & V3 signature schemes, `targetSdk = 35` for Android 16/15 compatibility, and upgrade version code 5.
+- **[`AndroKiller-v1.2.2-release.apk`](https://github.com/kanXer/Androkiller/releases/download/v1.2.2/AndroKiller-v1.2.2-release.apk)**: Previous build.
 
 ---
 

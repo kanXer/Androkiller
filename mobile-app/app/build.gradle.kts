@@ -11,16 +11,28 @@ android {
     defaultConfig {
         applicationId = "com.nexus.androkiller"
         minSdk = 24
-        targetSdk = 36
-        versionCode = 4
-        versionName = "1.2.2"
+        targetSdk = 35
+        versionCode = 5
+        versionName = "1.2.3"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("../release.keystore")
+            storePassword = "androkiller"
+            keyAlias = "androkiller"
+            keyPassword = "androkiller"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

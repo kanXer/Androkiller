@@ -122,8 +122,27 @@ class ScreenCaptureService : Service() {
         } else {
             androidPeerId = "screen_${com.nexus.androkiller.tracker.DeviceStatusProvider(applicationContext).getDeviceId()}"
         }
-        captureWidth = intent?.getIntExtra(EXTRA_WIDTH, 1280) ?: captureWidth
-        captureHeight = intent?.getIntExtra(EXTRA_HEIGHT, 720) ?: captureHeight
+        val dm = resources.displayMetrics
+        val realWidth = dm.widthPixels.coerceAtLeast(360)
+        val realHeight = dm.heightPixels.coerceAtLeast(640)
+
+        // Dynamically compute optimal capture dimensions matching native aspect ratio (avoids black pillarboxing)
+        val defaultWidth: Int
+        val defaultHeight: Int
+        if (realHeight >= realWidth) {
+            // Portrait phone orientation (e.g. 720 x 1600)
+            defaultWidth = 720
+            val propH = ((720.0 / realWidth) * realHeight).toInt()
+            defaultHeight = if (propH % 2 != 0) propH + 1 else propH
+        } else {
+            // Landscape tablet / rotated orientation
+            defaultHeight = 720
+            val propW = ((720.0 / realHeight) * realWidth).toInt()
+            defaultWidth = if (propW % 2 != 0) propW + 1 else propW
+        }
+
+        captureWidth = intent?.getIntExtra(EXTRA_WIDTH, defaultWidth) ?: defaultWidth
+        captureHeight = intent?.getIntExtra(EXTRA_HEIGHT, defaultHeight) ?: defaultHeight
         captureFps = intent?.getIntExtra(EXTRA_FPS, 30) ?: captureFps
         maxBitrate = intent?.getIntExtra(EXTRA_BITRATE, 2_500_000) ?: maxBitrate
         webRtc.maxVideoBitrateBps = maxBitrate

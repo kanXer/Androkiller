@@ -98,7 +98,30 @@ function callPhone() {
 }
 
 const fullscreenBtn = document.getElementById('fullscreenBtn');
+const fitBtn = document.getElementById('fitBtn');
+const rotateBtn = document.getElementById('rotateBtn');
 const videoWrapper = document.querySelector('.video-wrapper');
+
+let currentFit = 'contain';
+let currentRot = 0;
+
+function toggleFit() {
+  if (currentFit === 'contain') {
+    currentFit = 'fill';
+    video.style.objectFit = 'fill';
+    fitBtn.textContent = '📱 Fit Screen';
+  } else {
+    currentFit = 'contain';
+    video.style.objectFit = 'contain';
+    fitBtn.textContent = '↔️ Stretch Full';
+  }
+}
+
+function rotateVideo() {
+  currentRot = (currentRot + 90) % 360;
+  video.style.transform = `rotate(${currentRot}deg)`;
+  video.style.transition = 'transform 0.2s';
+}
 
 function toggleFullscreen() {
   const target = videoWrapper || video;
@@ -112,6 +135,14 @@ function toggleFullscreen() {
 
 if (reconnectBtn) {
   reconnectBtn.addEventListener('click', connect);
+}
+
+if (fitBtn) {
+  fitBtn.addEventListener('click', toggleFit);
+}
+
+if (rotateBtn) {
+  rotateBtn.addEventListener('click', rotateVideo);
 }
 
 if (fullscreenBtn) {
